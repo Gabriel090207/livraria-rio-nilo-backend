@@ -23,7 +23,8 @@ CORS(app, resources={r"/*": {"origins": [
     "http://127.0.0.1:5501", # Porta padrão do Flask se rodar sem Live Server
     "http://127.0.0.1:5503", # Adicionada a nova porta do Live Server (verifique qual porta o Live Server usa)
     "file://",               # Para arquivos HTML abertos diretamente do disco
-    "null"                    # Outra origem para arquivos abertos diretamente do disco (Chrome)
+    "null",
+    "https://siterionilo.netlify.app/"                    # Outra origem para arquivos abertos diretamente do disco (Chrome)
 ]}})
 
 # Suas credenciais e URLs da Cielo
