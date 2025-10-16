@@ -24,7 +24,8 @@ CORS(app, resources={r"/*": {"origins": [
     "http://127.0.0.1:5503", # Adicionada a nova porta do Live Server (verifique qual porta o Live Server usa)
     "file://",               # Para arquivos HTML abertos diretamente do disco
     "null",
-    "https://siterionilo.netlify.app/"                    # Outra origem para arquivos abertos diretamente do disco (Chrome)
+    "https://siterionilo.netlify.app/",
+     "https://apprionilo.netlify.app"                   # Outra origem para arquivos abertos diretamente do disco (Chrome)
 ]}})
 
 # Suas credenciais e URLs da Cielo
