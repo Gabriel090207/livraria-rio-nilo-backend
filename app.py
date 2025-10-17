@@ -441,67 +441,55 @@ def processar_boleto():
         return jsonify({"status": "error", "message": f"Erro interno no backend. Detalhes: {str(e)}"}), 500
 
 # ROTA PARA OBTER VENDAS GERAIS (USADA NO DASHBOARD E MINHAS VENDAS)
+# --- SERVE AS CAPAS DOS LIVROS ---
+@app.route('/static/capas/<path:filename>')
+def serve_capa(filename):
+    return send_file(os.path.join("static/capas", filename))
+
+# --- MAPEAMENTO DE CAPAS DOS LIVROS ---
+CAPAS_MAP = {
+    "As Aventuras de Mike": "livro1.png",
+    "Five Nights at Freddy's": "livro3.png",
+    "Turma da Mônica": "monica.jpg",
+    "O Pequeno Príncipe": "principe.jpg",
+    # adicione mais conforme seus produtos
+}
+
+# --- MODIFICAR A ROTA EXISTENTE /vendas ---
 @app.route('/vendas', methods=['GET'])
 def get_vendas():
     try:
         if 'db' not in globals() or db is None:
             return jsonify({"error": "Serviço de banco de dados indisponível."}), 500
 
-        period = request.args.get('period', 'today') 
-        now_utc = datetime.datetime.utcnow() 
-        start_date = None
-        end_date = None
-
-        if period == 'today':
-            start_date = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
-            end_date = now_utc.replace(hour=23, minute=59, second=59, microsecond=999999)
-        elif period == 'yesterday':
-            yesterday_utc = now_utc - datetime.timedelta(days=1)
-            start_date = yesterday_utc.replace(hour=0, minute=0, second=0, microsecond=0)
-            end_date = yesterday_utc.replace(hour=23, minute=59, second=59, microsecond=999999)
-        elif period == 'last7days':
-            start_date = now_utc - datetime.timedelta(days=6)
-            start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
-            end_date = now_utc.replace(hour=23, minute=59, second=59, microsecond=999999)
-        elif period == 'currentMonth':
-            start_date = now_utc.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            next_month = (now_utc.replace(day=1) + datetime.timedelta(days=32)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            end_date = next_month - datetime.timedelta(microseconds=1)
-        elif period == 'lastMonth':
-            first_day_current_month = now_utc.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            end_date = first_day_current_month - datetime.timedelta(microseconds=1)
-            start_date = end_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        elif period == 'allTime':
-            start_date = None
-            end_date = None
-        else:
-            start_date = None 
-            end_date = None 
-
         vendas_query = db.collection('vendas')
-        if start_date:
-            vendas_query = vendas_query.where('data_hora', '>=', start_date)
-        if end_date:
-            vendas_query = vendas_query.where('data_hora', '<=', end_date)
-            
         docs = vendas_query.stream()
+
         lista_vendas = []
         for doc in docs:
             venda = doc.to_dict()
             venda['id'] = doc.id
             if isinstance(venda.get('data_hora'), datetime.datetime):
-                venda['data_hora'] = venda['data_hora'].isoformat() 
+                venda['data_hora'] = venda['data_hora'].isoformat()
             else:
-                venda['data_hora'] = None 
+                venda['data_hora'] = None
+
+            # adiciona URL da capa
+            produto_nome = venda.get("produto", "")
+            nome_arquivo = CAPAS_MAP.get(produto_nome)
+            if nome_arquivo:
+                venda["img_url"] = f"http://localhost:5000/static/capas/{nome_arquivo}"
+            else:
+                venda["img_url"] = "https://placehold.co/100x140?text=Sem+Capa"
+
             lista_vendas.append(venda)
-        
-        lista_vendas.sort(key=lambda x: x.get('data_hora', '0000-01-01T00:00:00') if x.get('data_hora') else '', reverse=True)
+
+        lista_vendas.sort(key=lambda x: x.get('data_hora', ''), reverse=True)
         return jsonify(lista_vendas), 200
 
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": f"Erro ao carregar vendas: {str(e)}"}), 500
-
 
 # --- NOVAS ROTAS PARA RELATÓRIOS ESPECÍFICOS ---
 
