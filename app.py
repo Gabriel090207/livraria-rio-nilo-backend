@@ -7,27 +7,44 @@ import datetime
 import traceback
 from dotenv import load_dotenv
 from collections import defaultdict 
-import io # Para a exportação XLSX
-from openpyxl import Workbook # Para a exportação XLSX
-from openpyxl.styles import Font, Alignment # Para estilos em XLSX
-import sys # Para sys.exit caso a inicialização do Firebase falhe criticamente
+import io  # Para a exportação XLSX
+from openpyxl import Workbook  # Para a exportação XLSX
+from openpyxl.styles import Font, Alignment  # Para estilos em XLSX
+import sys  # Para sys.exit caso a inicialização do Firebase falhe criticamente
 
 # Carrega as variáveis de ambiente do arquivo .env (se existir)
 load_dotenv()
 
 app = Flask(__name__)
-# Habilita CORS para todas as rotas da sua aplicação Flask
-CORS(app, resources={r"/*": {"origins": [
-    "http://localhost:5500", # Sua máquina (Live Server)
-    "http://127.0.0.1:5500", # Sua máquina (Live Server)
-    "http://127.0.0.1:5501", # Porta padrão do Flask se rodar sem Live Server
-    "http://127.0.0.1:5502",
-    "http://127.0.0.1:5520", # Adicionada a nova porta do Live Server (verifique qual porta o Live Server usa)
-    "file://",               # Para arquivos HTML abertos diretamente do disco
-    "null",
-    "https://siterionilo.netlify.app/",
-     "https://apprionilo.netlify.app"                   # Outra origem para arquivos abertos diretamente do disco (Chrome)
-]}})
+
+# ------------------------------------------------------
+# 🔥 CORS FUNCIONANDO NO RENDER + SUPORTE A OPTIONS
+# ------------------------------------------------------
+
+# Libera geral para evitar bloqueio no Render
+CORS(app, supports_credentials=True)
+
+# Responde preflight automaticamente
+@app.after_request
+def apply_cors(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return response
+
+# Rota universal para OPTIONS (preflight)
+@app.route('/', defaults={'path': ''}, methods=['OPTIONS'])
+@app.route('/<path:path>', methods=['OPTIONS'])
+def cors_preflight(path):
+    response = jsonify({"status": "ok"})
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return response
+
+# ------------------------------------------------------
+# Firebase
+# ------------------------------------------------------
 
 # Suas credenciais e URLs da Cielo
 MERCHANT_ID = os.getenv("CIELO_MERCHANT_ID")
@@ -38,22 +55,18 @@ CIELO_API_URL = os.getenv("CIELO_API_URL_PROD", "https://api.cieloecommerce.ciel
 CIELO_API_QUERY_URL = os.getenv("CIELO_API_QUERY_URL_PROD", "https://apiquery.cieloecommerce.cielo.com.br/1/sales/")
 
 # --- Importações e Inicialização do Firebase ---
-# AS IMPORTAÇÕES PRECISAM VIR ANTES DA TENTATIVA DE USAR OS MÓDULOS
 import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import firestore
 
 try:
-    # Use firebase_admin._apps para evitar inicializar o aplicativo várias vezes em ambientes como Flask debug
     if not firebase_admin._apps:
-        cred = credentials.Certificate('chave-firebase.json') # Garanta que este caminho está correto
+        cred = credentials.Certificate('chave-firebase.json')  # Garanta que este caminho está correto
         firebase_admin.initialize_app(cred)
     db = firestore.client()
     print("Firebase inicializado com sucesso!")
 except Exception as e:
     print(f"Erro ao inicializar Firebase: {e}")
-    # Você pode considerar adicionar um sys.exit(1) aqui se a conexão com o Firebase for crítica
-# --- Fim da Inicialização do Firebase ---
 
 
 @app.route('/')
