@@ -191,6 +191,7 @@ def processar_pagamento():
         traceback.print_exc()
         return jsonify({"status": "error", "message": f"Erro interno no backend. Detalhes: {str(e)}"}), 500
 
+
 @app.route('/processar-debito', methods=['POST'])
 def processar_debito():
     try:
@@ -199,72 +200,48 @@ def processar_debito():
             return jsonify({"error": "Dados inválidos ou incompletos. Esperado um objeto JSON."}), 400
         if 'paymentDetails' not in data or 'billingData' not in data:
             return jsonify({"error": "Dados inválidos ou incompletos"}), 400
+
         payment_details = data['paymentDetails']
         billing_data = data['billingData']
-        if 'cardNumber' not in payment_details or 'holder' not in payment_details or \
-           'expirationDate' not in payment_details or 'securityCode' not in payment_details or \
-           'amount' not in payment_details:
-            return jsonify({"error": "Dados de pagamento do cartão de débito incompletos"}), 400
+
+        # Validação
+        required_fields = ['cardNumber', 'holder', 'expirationDate', 'securityCode', 'amount']
+        for field in required_fields:
+            if field not in payment_details:
+                return jsonify({"error": f"Campo obrigatório ausente: {field}"}), 400
 
         card_number = payment_details['cardNumber'].replace(" ", "").replace("-", "")
         amount_in_cents = int(float(payment_details['amount']) * 100)
+
         merchant_order_id = f"LV_DEBITO_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{os.urandom(4).hex()}"
 
-        expiration_date_frontend_raw_debito = payment_details['expirationDate']
-        cielo_expiration_date_debito = ""
-        temp_numeric_date_debito = expiration_date_frontend_raw_debito.replace('/', '').replace(' ', '')
-        month_debito = temp_numeric_date_debito[:2]
-        year_part_debito = temp_numeric_date_debito[2:]
-        try:
-            if len(year_part_debito) == 2:
-                full_year_int_debito = 2000 + int(year_part_debito)
-                full_year_int_debito = max(full_year_int_debito, datetime.datetime.now().year) 
-            elif len(year_part_debito) == 4:
-                full_year_int_debito = int(year_part_debito)
-            else:
-                full_year_int_debito = 0
-            cielo_expiration_date_debito = f"{month_debito}/{full_year_int_debito}"
-        except ValueError:
-            cielo_expiration_date_debito = expiration_date_frontend_raw_debito
-        
-        debit_data = {
+        # Formatar validade MM/AAAA
+        raw_date = payment_details['expirationDate'].replace('/', '').strip()
+        month = raw_date[:2]
+        year = raw_date[2:]
+        if len(year) == 2:
+            year = f"20{year}"
+        cielo_expiration_date = f"{month}/{year}"
+
+        # 🔥 AGORA O DÉBITO VIRA CRÉDITO À VISTA (SEM 3DS)
+        debit_as_credit_data = {
             "MerchantOrderId": merchant_order_id,
             "Customer": {
                 "Name": f"{billing_data.get('firstName')} {billing_data.get('lastName')}",
                 "Identity": billing_data.get('cpf'),
                 "IdentityType": "CPF",
-                "Email": billing_data.get('email'),
-                "Address": {
-                    "Street": billing_data.get('address'),
-                    "Number": billing_data.get('number'),
-                    "Complement": billing_data.get('complement'),
-                    "ZipCode": billing_data.get('zipCode'),
-                    "District": billing_data.get('neighborhood'),
-                    "City": billing_data.get('city', 'SAO PAULO'),
-                    "State": billing_data.get('state', 'SP'),
-                    "Country": billing_data.get('country', 'BRA')
-                },
-                "DeliveryAddress": {
-                    "Street": billing_data.get('address'),
-                    "Number": billing_data.get('number'),
-                    "Complement": billing_data.get('complement'),
-                    "ZipCode": billing_data.get('zipCode'),
-                    "District": billing_data.get('neighborhood'),
-                    "City": billing_data.get('city', 'SAO PAULO'),
-                    "State": billing_data.get('state', 'SP'),
-                    "Country": billing_data.get('country', 'BRA')
-                }
+                "Email": billing_data.get('email')
             },
             "Payment": {
-                "Type": "DebitCard",
+                "Type": "CreditCard",
                 "Amount": amount_in_cents,
-                "Authenticate": True,
-                "ReturnUrl": "http://localhost:5500/Front%20end/finalizar.html", # URL de retorno após 3DS
+                "Installments": 1,
+                "Capture": True,
                 "SoftDescriptor": "LIVRARIAWEB",
-                "DebitCard": {
+                "CreditCard": {
                     "CardNumber": card_number,
                     "Holder": payment_details['holder'],
-                    "ExpirationDate": cielo_expiration_date_debito,
+                    "ExpirationDate": cielo_expiration_date,
                     "SecurityCode": payment_details['securityCode'],
                     "Brand": "Visa"
                 }
@@ -277,35 +254,46 @@ def processar_debito():
             "MerchantKey": MERCHANT_KEY
         }
 
-        response = requests.post(CIELO_API_URL, headers=headers, data=json.dumps(debit_data))
+        response = requests.post(CIELO_API_URL, headers=headers, data=json.dumps(debit_as_credit_data))
         response_json = response.json()
 
+        # SUCESSO
         if response.status_code == 201:
             if 'db' in globals() and db is not None:
                 venda_data = {
                     "payment_id": response_json.get('Payment', {}).get('PaymentId'),
                     "merchant_order_id": merchant_order_id,
-                    "data_hora": datetime.datetime.utcnow(), 
-                    "produto": data['cartItems'][0]['name'] if data.get('cartItems') else 'N/A', # Assumindo um único produto
+                    "data_hora": datetime.datetime.utcnow(),
+                    "produto": data['cartItems'][0]['name'] if data.get('cartItems') else 'N/A',
                     "cliente_nome": f"{billing_data.get('firstName', '')} {billing_data.get('lastName', '')}",
                     "cliente_email": billing_data.get('email', ''),
-                    "cliente_escola": billing_data.get('school', 'N/A'), 
+                    "cliente_escola": billing_data.get('school', 'N/A'),
                     "valor": float(payment_details['amount']),
                     "status_cielo_codigo": response_json.get('Payment', {}).get('Status'),
                     "status_cielo_mensagem": response_json.get('Payment', {}).get('ReturnMessage', 'Status desconhecido'),
-                    "status_interno": "Aguardando Autenticação",
-                    "tipo_pagamento": "Cartão de Débito",
-                    "bandeira": payment_details.get('brand', 'Visa'),
-                    "redirect_url": response_json.get('Payment', {}).get('AuthenticationUrl')
+                    "tipo_pagamento": "Débito (Processado como Crédito à Vista)",
+                    "bandeira": "Visa"
                 }
                 db.collection('vendas').document().set(venda_data)
-            return jsonify({"status": "success", "message": "Redirecionando para autenticação 3D Secure...", "cielo_response": response_json, "redirect_url": response_json['Payment']['AuthenticationUrl']}), 200
+
+            return jsonify({
+                "status": "success",
+                "message": "Pagamento de débito aprovado!",
+                "cielo_response": response_json
+            }), 200
+        
+        # ERRO
         else:
-            return jsonify({"status": "error", "message": "Erro ao processar débito na Cielo", "cielo_error": response_json}), response.status_code
+            return jsonify({
+                "status": "error",
+                "message": "Erro ao processar débito na Cielo",
+                "cielo_error": response_json
+            }), response.status_code
 
     except Exception as e:
         traceback.print_exc()
         return jsonify({"status": "error", "message": f"Erro interno no backend. Detalhes: {str(e)}"}), 500
+
 
 @app.route('/processar-pix', methods=['POST'])
 def processar_pix():
