@@ -12,6 +12,30 @@ from openpyxl import Workbook  # Para a exportação XLSX
 from openpyxl.styles import Font, Alignment  # Para estilos em XLSX
 import sys  # Para sys.exit caso a inicialização do Firebase falhe criticamente
 
+
+# ----- OneSignal Push Notifications -----
+ONESIGNAL_APP_ID = "4e3346a9-bac1-4cbb-b366-4f17ffa4e0e4"
+ONESIGNAL_API_KEY = "c7nli6j2wuuyuho2dwb5kai3w"  # Cole aqui
+
+def enviar_notificacao(titulo, mensagem):
+    url = "https://onesignal.com/api/v1/notifications"
+    headers = {
+        "Content-Type": "application/json; charset=utf-8",
+        "Authorization": f"Basic {ONESIGNAL_API_KEY}",
+    }
+    payload = {
+        "app_id": ONESIGNAL_APP_ID,
+        "included_segments": ["All"],  # envia para TODOS que instalaram o app
+        "headings": {"en": titulo},
+        "contents": {"en": mensagem},
+    }
+
+    try:
+        requests.post(url, headers=headers, json=payload)
+        print("🔔 Notificação enviada com sucesso")
+    except Exception as e:
+        print("Erro ao enviar notificação:", e)
+
 # Carrega as variáveis de ambiente do arquivo .env (se existir)
 load_dotenv()
 
@@ -183,6 +207,11 @@ def processar_pagamento():
                     "bandeira": payment_details.get('brand', 'Visa')
                 }
                 db.collection('vendas').document().set(venda_data)
+
+                enviar_notificacao(
+                    "Venda aprovada!",
+                    f"Você acabou de receber uma venda de R$ {payment_details['amount']}."
+                )
             return jsonify({"status": "success", "message": "Pagamento com cartão processado com sucesso!", "cielo_response": response_json}), 200
         else:
             return jsonify({"status": "error", "message": "Erro ao processar pagamento com cartão na Cielo", "cielo_error": response_json}), response.status_code
