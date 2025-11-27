@@ -36,6 +36,79 @@ def enviar_notificacao(titulo, mensagem):
     except Exception as e:
         print("Erro ao enviar notificação:", e)
 
+
+# ----- UltraMsg WhatsApp Notifications -----
+ULTRAMSG_INSTANCE = "instance152238"         # da sua conta
+ULTRAMSG_TOKEN = "saft20j5vof3157d"          # da sua conta
+
+def enviar_whatsapp(numero, mensagem):
+    """
+    Envia uma mensagem de WhatsApp usando UltraMsg.
+    Exemplo número: 5599999999999
+    """
+    try:
+        url = f"https://api.ultramsg.com/{ULTRAMSG_INSTANCE}/messages/chat"
+
+        payload = {
+            "token": ULTRAMSG_TOKEN,
+            "to": numero,
+            "body": mensagem
+        }
+
+        headers = {"Content-Type": "application/json"}
+
+        response = requests.post(url, json=payload, headers=headers)
+
+        print("📨 UltraMsg resposta:", response.status_code, response.text)
+
+        try:
+            return response.json()
+        except:
+            return {"raw_response": response.text}
+
+    except Exception as e:
+        print("❌ Erro ao enviar mensagem WhatsApp:", e)
+        return None
+
+
+def gerar_mensagem_whatsapp(venda):
+    nome_comprador = venda.get("cliente_nome", "Cliente")
+    numero_pedido = venda.get("merchant_order_id", "")
+    nome_crianca = venda.get("nome_crianca", "Não informado")
+    cpf = venda.get("cliente_email", "Não informado")  # Se quiser CPF real, só pedir que ajusto
+    forma_pagamento = venda.get("tipo_pagamento", "Não informado")
+    escola = venda.get("cliente_escola", "Não informada")
+    produto = venda.get("produto", "Produto")
+    quantidade = 1
+    total = float(venda.get("valor", 0))
+
+    mensagem = f"""
+Olá, {nome_comprador}! 👋
+
+O pagamento do seu pedido nº *{numero_pedido}* foi *aprovado*. ✅
+
+👦 *Nome da Criança:* {nome_crianca}
+🪪 *CPF:* {cpf}
+🏫 *Escola:* {escola}
+💳 *Forma de Pagamento:* {forma_pagamento}
+
+📦 *Produtos Comprados:*
+📘 Livro: {produto}
+🔢 Quantidade: {quantidade}
+💵 Total: R$ {total:.2f}
+
+🚨 *ATENÇÃO IMPORTANTE:*
+
+O produto será entregue *dentro de 48 horas diretamente na escola*.
+
+Para receber o kit do seu filho, *encaminhe esta mensagem para o WhatsApp da escola* ou apresente esta mensagem pessoalmente.
+
+Obrigado por sua compra! 💙📚
+"""
+
+    return mensagem
+
+
 # Carrega as variáveis de ambiente do arquivo .env (se existir)
 load_dotenv()
 
@@ -198,8 +271,11 @@ def processar_pagamento():
                     "data_hora": datetime.datetime.utcnow(), 
                     "produto": data['cartItems'][0]['name'] if data.get('cartItems') else 'N/A', # Assumindo um único produto
                     "cliente_nome": f"{billing_data.get('firstName', '')} {billing_data.get('lastName', '')}",
+                    "nome_crianca": billing_data.get("fullNameChild", ""),
+
                     "cliente_email": billing_data.get('email', ''),
-                    "cliente_escola": billing_data.get('school', 'N/A'), 
+                    "cliente_escola": billing_data.get('school', 'N/A'),
+                    "cliente_telefone": billing_data.get("phone", ""),
                     "valor": float(payment_details['amount']),
                     "status_cielo_codigo": response_json.get('Payment', {}).get('Status'),
                     "status_cielo_mensagem": response_json.get('Payment', {}).get('ReturnMessage', 'Status desconhecido'),
@@ -207,6 +283,16 @@ def processar_pagamento():
                     "bandeira": payment_details.get('brand', 'Visa')
                 }
                 db.collection('vendas').document().set(venda_data)
+
+                        # 📲 ENVIAR WHATSAPP PARA O CLIENTE
+                numero_cliente = billing_data.get("phone", "")
+
+                if numero_cliente:
+                    mensagem_wpp = gerar_mensagem_whatsapp(venda_data)
+                    enviar_whatsapp(numero_cliente, mensagem_wpp)
+                else:
+                    print("⚠️ Nenhum número de telefone encontrado em billingData['phone']")
+
 
                 enviar_notificacao(
                     "Venda aprovada!",
@@ -295,8 +381,11 @@ def processar_debito():
                     "data_hora": datetime.datetime.utcnow(),
                     "produto": data['cartItems'][0]['name'] if data.get('cartItems') else 'N/A',
                     "cliente_nome": f"{billing_data.get('firstName', '')} {billing_data.get('lastName', '')}",
+                    "nome_crianca": billing_data.get("fullNameChild", ""),
+
                     "cliente_email": billing_data.get('email', ''),
                     "cliente_escola": billing_data.get('school', 'N/A'),
+                    "cliente_telefone": billing_data.get("phone", ""),
                     "valor": float(payment_details['amount']),
                     "status_cielo_codigo": response_json.get('Payment', {}).get('Status'),
                     "status_cielo_mensagem": response_json.get('Payment', {}).get('ReturnMessage', 'Status desconhecido'),
@@ -304,6 +393,16 @@ def processar_debito():
                     "bandeira": "Visa"
                 }
                 db.collection('vendas').document().set(venda_data)
+
+                        # 📲 ENVIAR WHATSAPP PARA O CLIENTE
+                numero_cliente = billing_data.get("phone", "")
+
+                if numero_cliente:
+                    mensagem_wpp = gerar_mensagem_whatsapp(venda_data)
+                    enviar_whatsapp(numero_cliente, mensagem_wpp)
+                else:
+                    print("⚠️ Nenhum número de telefone encontrado em billingData['phone']")
+
 
             return jsonify({
                 "status": "success",
@@ -374,8 +473,11 @@ def processar_pix():
                         "data_hora": datetime.datetime.utcnow(), 
                         "produto": data['cartItems'][0]['name'] if data.get('cartItems') else 'N/A', # Assumindo um único produto
                         "cliente_nome": f"{billing_data.get('firstName', '')} {billing_data.get('lastName', '')}",
+                        "nome_crianca": billing_data.get("fullNameChild", ""),
+
                         "cliente_email": billing_data.get('email', ''),
-                        "cliente_escola": billing_data.get('school', 'N/A'), 
+                        "cliente_escola": billing_data.get('school', 'N/A'),
+                        "cliente_telefone": billing_data.get("phone", ""), 
                         "valor": float(payment_details['amount']),
                         "status_cielo_codigo": response_json.get('Payment', {}).get('Status'),
                         "status_cielo_mensagem": response_json.get('Payment', {}).get('ReturnMessage', 'Status desconhecido'),
@@ -449,8 +551,11 @@ def processar_boleto():
                         "data_hora": datetime.datetime.utcnow(), 
                         "produto": data['cartItems'][0]['name'] if data.get('cartItems') else 'N/A', # Assumindo um único produto
                         "cliente_nome": f"{billing_data.get('firstName', '')} {billing_data.get('lastName', '')}",
+                        "nome_crianca": billing_data.get("fullNameChild", ""),
+
                         "cliente_email": billing_data.get('email', ''),
                         "cliente_escola": billing_data.get('school', 'N/A'), 
+                        "cliente_telefone": billing_data.get("phone", ""),
                         "valor": float(payment_details['amount']),
                         "status_cielo_codigo": response_json.get('Payment', {}).get('Status'),
                         "status_cielo_mensagem": response_json.get('Payment', {}).get('ReturnMessage', 'Status desconhecido'),
@@ -470,6 +575,61 @@ def processar_boleto():
     except Exception as e:
         traceback.print_exc()
         return jsonify({"status": "error", "message": f"Erro interno no backend. Detalhes: {str(e)}"}), 500
+
+
+@app.route('/verificar-status/<payment_id>', methods=['GET'])
+def verificar_status(payment_id):
+    """
+    Verifica o status do pagamento na Cielo.
+    Se o status for 2 (pago), envia WhatsApp e atualiza o Firestore.
+    """
+    try:
+        # Consulta na API da Cielo
+        url = f"{CIELO_API_QUERY_URL}/{payment_id}"
+        headers = {
+            "Content-Type": "application/json",
+            "MerchantId": MERCHANT_ID,
+            "MerchantKey": MERCHANT_KEY
+        }
+
+        response = requests.get(url, headers=headers)
+        data = response.json()
+
+        payment_status = data.get("Payment", {}).get("Status")
+
+        # Se o pagamento ainda não foi aprovado
+        if payment_status != 2:
+            return jsonify({"status": payment_status}), 200
+
+        # Pagamento aprovado → buscar venda no Firestore
+        vendas = db.collection("vendas").where("payment_id", "==", payment_id).stream()
+        for v in vendas:
+            venda_data = v.to_dict()
+            doc_id = v.id
+
+            # Já enviamos WhatsApp antes?
+            if venda_data.get("whatsapp_enviado", False):
+                return jsonify({"status": payment_status}), 200
+
+            # Enviar WhatsApp
+            numero_cliente = venda_data.get("cliente_telefone", None)
+            if not numero_cliente:
+                print("⚠️ Venda não tem telefone salvo")
+                return jsonify({"status": payment_status}), 200
+
+            mensagem = gerar_mensagem_whatsapp(venda_data)
+            enviar_whatsapp(numero_cliente, mensagem)
+
+            # Marcar como enviado
+            db.collection("vendas").document(doc_id).update({
+                "whatsapp_enviado": True
+            })
+
+        return jsonify({"status": payment_status}), 200
+
+    except Exception as e:
+        print("Erro ao verificar status:", e)
+        return jsonify({"error": str(e)}), 500
 
 # ROTA PARA OBTER VENDAS GERAIS (USADA NO DASHBOARD E MINHAS VENDAS)
 @app.route('/vendas', methods=['GET'])
