@@ -75,7 +75,7 @@ def gerar_mensagem_whatsapp(venda):
     nome_comprador = venda.get("cliente_nome", "Cliente")
     numero_pedido = venda.get("merchant_order_id", "")
     nome_crianca = venda.get("nome_crianca", "Não informado")
-    cpf = venda.get("cliente_email", "Não informado")  # Se quiser CPF real, só pedir que ajusto
+    cpf = venda.get("cliente_cpf", "Não informado")  # Se quiser CPF real, só pedir que ajusto
     forma_pagamento = venda.get("tipo_pagamento", "Não informado")
     escola = venda.get("cliente_escola", "Não informada")
     produto = venda.get("produto", "Produto")
