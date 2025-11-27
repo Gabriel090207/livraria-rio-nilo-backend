@@ -613,6 +613,9 @@ def verificar_status(payment_id):
 
             # Enviar WhatsApp
             numero_cliente = venda_data.get("cliente_telefone", None)
+
+            if numero_cliente and not numero_cliente.startswith("55"):
+                numero_cliente = "55" + numero_cliente
             if not numero_cliente:
                 print("⚠️ Venda não tem telefone salvo")
                 return jsonify({"status": payment_status}), 200
