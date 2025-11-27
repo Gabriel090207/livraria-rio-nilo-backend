@@ -87,7 +87,20 @@ def gerar_mensagem_whatsapp(venda):
     for item in produtos:
         nome = item.get("name", "Produto")
         quantidade = item.get("quantity", 1)
-        preco = float(item.get("price", 0))
+        # Normalizar preço — aceita "R$ 0,01", "0,01", "0.01", etc
+        preco_raw = str(item.get("price", "0"))
+        preco_limpo = (
+            preco_raw
+                .replace("R$", "")
+                .replace(" ", "")
+                .replace(".", "")
+                .replace(",", ".")
+        )
+        try:
+            preco = float(preco_limpo)
+        except:
+            preco = 0.0
+
         subtotal = quantidade * preco
         total += subtotal
 
