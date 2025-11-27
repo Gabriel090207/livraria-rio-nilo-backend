@@ -272,6 +272,7 @@ def processar_pagamento():
                     "produto": data['cartItems'][0]['name'] if data.get('cartItems') else 'N/A', # Assumindo um único produto
                     "cliente_nome": f"{billing_data.get('firstName', '')} {billing_data.get('lastName', '')}",
                     "nome_crianca": billing_data.get("fullNameChild", ""),
+                    "cliente_cpf": billing_data.get("cpf", ""),
 
                     "cliente_email": billing_data.get('email', ''),
                     "cliente_escola": billing_data.get('school', 'N/A'),
@@ -382,6 +383,7 @@ def processar_debito():
                     "produto": data['cartItems'][0]['name'] if data.get('cartItems') else 'N/A',
                     "cliente_nome": f"{billing_data.get('firstName', '')} {billing_data.get('lastName', '')}",
                     "nome_crianca": billing_data.get("fullNameChild", ""),
+                    "cliente_cpf": billing_data.get("cpf", ""),
 
                     "cliente_email": billing_data.get('email', ''),
                     "cliente_escola": billing_data.get('school', 'N/A'),
@@ -474,6 +476,7 @@ def processar_pix():
                         "produto": data['cartItems'][0]['name'] if data.get('cartItems') else 'N/A', # Assumindo um único produto
                         "cliente_nome": f"{billing_data.get('firstName', '')} {billing_data.get('lastName', '')}",
                         "nome_crianca": billing_data.get("fullNameChild", ""),
+                        "cliente_cpf": billing_data.get("cpf", ""),
 
                         "cliente_email": billing_data.get('email', ''),
                         "cliente_escola": billing_data.get('school', 'N/A'),
@@ -552,6 +555,7 @@ def processar_boleto():
                         "produto": data['cartItems'][0]['name'] if data.get('cartItems') else 'N/A', # Assumindo um único produto
                         "cliente_nome": f"{billing_data.get('firstName', '')} {billing_data.get('lastName', '')}",
                         "nome_crianca": billing_data.get("fullNameChild", ""),
+                        "cliente_cpf": billing_data.get("cpf", ""),
 
                         "cliente_email": billing_data.get('email', ''),
                         "cliente_escola": billing_data.get('school', 'N/A'), 
