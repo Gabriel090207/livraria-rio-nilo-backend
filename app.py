@@ -75,12 +75,23 @@ def gerar_mensagem_whatsapp(venda):
     nome_comprador = venda.get("cliente_nome", "Cliente")
     numero_pedido = venda.get("merchant_order_id", "")
     nome_crianca = venda.get("nome_crianca", "Não informado")
-    cpf = venda.get("cliente_cpf", "Não informado")  # Se quiser CPF real, só pedir que ajusto
+    cpf = venda.get("cliente_cpf", "Não informado")
     forma_pagamento = venda.get("tipo_pagamento", "Não informado")
     escola = venda.get("cliente_escola", "Não informada")
-    produto = venda.get("produto", "Produto")
-    quantidade = 1
-    total = float(venda.get("valor", 0))
+
+    produtos = venda.get("produtos", [])
+    
+    lista_formatada = ""
+    total = 0
+
+    for item in produtos:
+        nome = item.get("name", "Produto")
+        quantidade = item.get("quantity", 1)
+        preco = float(item.get("price", 0))
+        subtotal = quantidade * preco
+        total += subtotal
+
+        lista_formatada += f"📘 {nome} — {quantidade}x (R$ {subtotal:.2f})\n"
 
     mensagem = f"""
 Olá, {nome_comprador}! 👋
@@ -93,9 +104,8 @@ O pagamento do seu pedido nº *{numero_pedido}* foi *aprovado*. ✅
 💳 *Forma de Pagamento:* {forma_pagamento}
 
 📦 *Produtos Comprados:*
-📘 Livro: {produto}
-🔢 Quantidade: {quantidade}
-💵 Total: R$ {total:.2f}
+{lista_formatada}
+💵 *Total:* R$ {total:.2f}
 
 🚨 *ATENÇÃO IMPORTANTE:*
 
@@ -107,7 +117,6 @@ Obrigado por sua compra! 💙📚
 """
 
     return mensagem
-
 
 # Carrega as variáveis de ambiente do arquivo .env (se existir)
 load_dotenv()
@@ -269,7 +278,7 @@ def processar_pagamento():
                     "payment_id": response_json.get('Payment', {}).get('PaymentId'),
                     "merchant_order_id": merchant_order_id,
                     "data_hora": datetime.datetime.utcnow(), 
-                    "produto": data['cartItems'][0]['name'] if data.get('cartItems') else 'N/A', # Assumindo um único produto
+                    "produtos": data.get("cartItems", []) if data.get('cartItems') else 'N/A', # Assumindo um único produto
                     "cliente_nome": f"{billing_data.get('firstName', '')} {billing_data.get('lastName', '')}",
                     "nome_crianca": billing_data.get("fullNameChild", ""),
                     "cliente_cpf": billing_data.get("cpf", ""),
@@ -374,7 +383,7 @@ def processar_debito():
                     "payment_id": response_json.get('Payment', {}).get('PaymentId'),
                     "merchant_order_id": merchant_order_id,
                     "data_hora": datetime.datetime.utcnow(),
-                    "produto": data['cartItems'][0]['name'] if data.get('cartItems') else 'N/A',
+                    "produtos": data.get("cartItems", []) if data.get('cartItems') else 'N/A',
                     "cliente_nome": f"{billing_data.get('firstName', '')} {billing_data.get('lastName', '')}",
                     "nome_crianca": billing_data.get("fullNameChild", ""),
                     "cliente_cpf": billing_data.get("cpf", ""),
@@ -460,7 +469,7 @@ def processar_pix():
                         "payment_id": response_json.get('Payment', {}).get('PaymentId'),
                         "merchant_order_id": merchant_order_id,
                         "data_hora": datetime.datetime.utcnow(), 
-                        "produto": data['cartItems'][0]['name'] if data.get('cartItems') else 'N/A', # Assumindo um único produto
+                        "produtos": data.get("cartItems", []) if data.get('cartItems') else 'N/A', # Assumindo um único produto
                         "cliente_nome": f"{billing_data.get('firstName', '')} {billing_data.get('lastName', '')}",
                         "nome_crianca": billing_data.get("fullNameChild", ""),
                         "cliente_cpf": billing_data.get("cpf", ""),
@@ -539,7 +548,7 @@ def processar_boleto():
                         "payment_id": response_json.get('Payment', {}).get('PaymentId'),
                         "merchant_order_id": merchant_order_id,
                         "data_hora": datetime.datetime.utcnow(), 
-                        "produto": data['cartItems'][0]['name'] if data.get('cartItems') else 'N/A', # Assumindo um único produto
+                        "produtos": data.get("cartItems", []) if data.get('cartItems') else 'N/A', # Assumindo um único produto
                         "cliente_nome": f"{billing_data.get('firstName', '')} {billing_data.get('lastName', '')}",
                         "nome_crianca": billing_data.get("fullNameChild", ""),
                         "cliente_cpf": billing_data.get("cpf", ""),
