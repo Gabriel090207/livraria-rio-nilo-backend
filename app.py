@@ -285,14 +285,8 @@ def processar_pagamento():
                 }
                 db.collection('vendas').document().set(venda_data)
 
-                        # 📲 ENVIAR WHATSAPP PARA O CLIENTE
-                numero_cliente = billing_data.get("phone", "")
-
-                if numero_cliente:
-                    mensagem_wpp = gerar_mensagem_whatsapp(venda_data)
-                    enviar_whatsapp(numero_cliente, mensagem_wpp)
-                else:
-                    print("⚠️ Nenhum número de telefone encontrado em billingData['phone']")
+                    
+                # 📲 WhatsApp removido — agora será enviado SOMENTE em /verificar-status
 
 
                 enviar_notificacao(
@@ -396,15 +390,8 @@ def processar_debito():
                 }
                 db.collection('vendas').document().set(venda_data)
 
-                        # 📲 ENVIAR WHATSAPP PARA O CLIENTE
-                numero_cliente = billing_data.get("phone", "")
-
-                if numero_cliente:
-                    mensagem_wpp = gerar_mensagem_whatsapp(venda_data)
-                    enviar_whatsapp(numero_cliente, mensagem_wpp)
-                else:
-                    print("⚠️ Nenhum número de telefone encontrado em billingData['phone']")
-
+                    
+               # 📲 WhatsApp removido — agora será enviado SOMENTE em /verificar-status
 
             return jsonify({
                 "status": "success",
