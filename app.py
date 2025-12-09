@@ -79,6 +79,9 @@ def gerar_mensagem_whatsapp(venda):
     forma_pagamento = venda.get("tipo_pagamento", "Não informado")
     escola = venda.get("cliente_escola", "Não informada")
 
+    # 👇 AQUI ESTÁ A CORREÇÃO
+    parcelas = venda.get("parcelas", 1)
+
     produtos = venda.get("produtos", [])
     
     lista_formatada = ""
@@ -87,14 +90,10 @@ def gerar_mensagem_whatsapp(venda):
     for item in produtos:
         nome = item.get("name", "Produto")
         quantidade = item.get("quantity", 1)
-        # Normalizar preço — aceita "R$ 0,01", "0,01", "0.01", etc
+
         preco_raw = str(item.get("price", "0"))
         preco_limpo = (
-            preco_raw
-                .replace("R$", "")
-                .replace(" ", "")
-                .replace(".", "")
-                .replace(",", ".")
+            preco_raw.replace("R$", "").replace(" ", "").replace(".", "").replace(",", ".")
         )
         try:
             preco = float(preco_limpo)
@@ -106,6 +105,7 @@ def gerar_mensagem_whatsapp(venda):
 
         lista_formatada += f"📘 {nome} — {quantidade}x (R$ {subtotal:.2f})\n"
 
+    # 👇 Acrescenta parcelas na mensagem
     mensagem = f"""
 Olá, {nome_comprador}! 👋
 
@@ -114,7 +114,7 @@ O pagamento do seu pedido nº *{numero_pedido}* foi *aprovado*. ✅
 👦 *Nome da Criança:* {nome_crianca}
 🪪 *CPF:* {cpf}
 🏫 *Escola:* {escola}
-💳 *Forma de Pagamento:* {forma_pagamento}
+💳 *Forma de Pagamento:* {forma_pagamento} em {parcelas}x
 
 📦 *Produtos Comprados:*
 {lista_formatada}
@@ -131,17 +131,6 @@ Obrigado por sua compra! 💙📚
 
     return mensagem
 
-# Carrega as variáveis de ambiente do arquivo .env (se existir)
-load_dotenv()
-
-app = Flask(__name__)
-
-# ------------------------------------------------------
-# 🔥 CORS FUNCIONANDO NO RENDER + SUPORTE A OPTIONS
-# ------------------------------------------------------
-
-# Libera geral para evitar bloqueio no Render
-CORS(app, supports_credentials=True)
 
 # Responde preflight automaticamente
 @app.after_request
