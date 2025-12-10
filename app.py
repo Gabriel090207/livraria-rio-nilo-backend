@@ -132,6 +132,12 @@ Obrigado por sua compra! 💙📚
     return mensagem
 
 
+load_dotenv()
+
+app = Flask(__name__)
+CORS(app, supports_credentials=True)
+
+
 # Responde preflight automaticamente
 @app.after_request
 def apply_cors(response):
