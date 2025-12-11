@@ -72,6 +72,8 @@ def enviar_whatsapp(numero, mensagem):
 
 
 def gerar_mensagem_whatsapp(venda):
+    from collections import defaultdict
+
     nome_comprador = venda.get("cliente_nome", "Cliente")
     numero_pedido = venda.get("merchant_order_id", "")
     nome_crianca = venda.get("nome_crianca", "Não informado")
@@ -79,13 +81,21 @@ def gerar_mensagem_whatsapp(venda):
     forma_pagamento = venda.get("tipo_pagamento", "Não informado")
     escola = venda.get("cliente_escola", "Não informada")
 
-    # 👇 AQUI ESTÁ A CORREÇÃO
-    parcelas = venda.get("parcelas", 1)
+    # 👇 AQUI VAMOS AJUSTAR DEPOIS QUE VOCÊ ENVIAR O JSON REAL DA VENDA
+    parcelas = (
+        venda.get("parcelas") or
+        venda.get("installments") or
+        venda.get("payment", {}).get("installments") or
+        1
+    )
+
 
     produtos = venda.get("produtos", [])
-    
-    lista_formatada = ""
-    total = 0
+
+    # ──────────────────────────────────────────
+    # AGRUPAR PRODUTOS IGUAIS ANTES DE LISTAR
+    # ──────────────────────────────────────────
+    produtos_agrupados = defaultdict(lambda: {"quantidade": 0, "preco": 0})
 
     for item in produtos:
         nome = item.get("name", "Produto")
@@ -95,17 +105,33 @@ def gerar_mensagem_whatsapp(venda):
         preco_limpo = (
             preco_raw.replace("R$", "").replace(" ", "").replace(".", "").replace(",", ".")
         )
+
         try:
             preco = float(preco_limpo)
         except:
             preco = 0.0
+
+        produtos_agrupados[nome]["quantidade"] += quantidade
+        produtos_agrupados[nome]["preco"] = preco
+
+    # ──────────────────────────────────────────
+    # MONTAR LISTA FINAL FORMATADA
+    # ──────────────────────────────────────────
+    lista_formatada = ""
+    total = 0
+
+    for nome, dados in produtos_agrupados.items():
+        quantidade = dados["quantidade"]
+        preco = dados["preco"]
 
         subtotal = quantidade * preco
         total += subtotal
 
         lista_formatada += f"📘 {nome} — {quantidade}x (R$ {subtotal:.2f})\n"
 
-    # 👇 Acrescenta parcelas na mensagem
+    # ──────────────────────────────────────────
+    # MONTAR MENSAGEM FINAL
+    # ──────────────────────────────────────────
     mensagem = f"""
 Olá, {nome_comprador}! 👋
 
