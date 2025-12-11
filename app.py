@@ -312,7 +312,7 @@ def processar_pagamento():
                     "payment_id": response_json.get('Payment', {}).get('PaymentId'),
                     "merchant_order_id": merchant_order_id,
                     "data_hora": datetime.datetime.utcnow(), 
-                    "produtos": data.get("cartItems", []) if data.get('cartItems') else 'N/A', # Assumindo um único produto
+                    "produtos": data.get("cartItems", []) if data.get('cartItems') else 'N/A',
                     "cliente_nome": f"{billing_data.get('firstName', '')} {billing_data.get('lastName', '')}",
                     "nome_crianca": billing_data.get("fullNameChild", ""),
                     "cliente_cpf": billing_data.get("cpf", ""),
@@ -324,8 +324,12 @@ def processar_pagamento():
                     "status_cielo_codigo": response_json.get('Payment', {}).get('Status'),
                     "status_cielo_mensagem": response_json.get('Payment', {}).get('ReturnMessage', 'Status desconhecido'),
                     "tipo_pagamento": "Cartão de Crédito",
-                    "bandeira": payment_details.get('brand', 'Visa')
+                    "bandeira": payment_details.get('brand', 'Visa'),
+
+                    # ✅ AQUI, CORRETAMENTE FORMATADO
+                    "parcelas": installments
                 }
+
                 db.collection('vendas').document().set(venda_data)
 
                     
