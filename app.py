@@ -1,4 +1,6 @@
 from flask import Flask, request, jsonify, send_file
+from nfe import gerar_xml_nfe, enviar_nfe_sefaz
+
 from flask_cors import CORS
 import requests
 import json
@@ -1018,6 +1020,55 @@ def get_financeiro_resumo():
         print(f"Erro ao gerar resumo financeiro: {e}")
         traceback.print_exc()
         return jsonify({"error": f"Erro ao gerar resumo financeiro: {str(e)}"}), 500
+
+
+@app.route("/emitir-nfe", methods=["POST"])
+def emitir_nfe():
+    try:
+        data = request.get_json()
+        payment_id = data.get("payment_id")
+
+        if not payment_id:
+            return jsonify({"error": "payment_id não informado"}), 400
+
+        # Buscar venda no Firestore
+        vendas = db.collection("vendas").where("payment_id", "==", payment_id).stream()
+
+        venda_doc = None
+        for v in vendas:
+            venda_doc = v.to_dict()
+            break
+
+        if not venda_doc:
+            return jsonify({"error": "Venda não encontrada"}), 404
+
+        # Dados da venda
+        venda = {
+            "cliente_nome": venda_doc.get("cliente_nome"),
+            "cliente_cpf": venda_doc.get("cliente_cpf"),
+            "cliente_email": venda_doc.get("cliente_email")
+        }
+
+        itens = venda_doc.get("produtos", [])
+
+        # Gerar XML da NF-e
+        xml_nfe = gerar_xml_nfe(venda, itens)
+
+        # (modo teste – não envia)
+        resultado = enviar_nfe_sefaz(xml_nfe)
+
+        return jsonify({
+            "status": "ok",
+            "mensagem": "NF-e gerada (modo teste)",
+            "resultado_sefaz": resultado,
+            "xml_nfe": xml_nfe
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "error": "Erro ao emitir NF-e",
+            "detalhes": str(e)
+        }), 500
 
 # ... (ESTA LINHA ABAIXO É ONDE SEU `if __name__ == '__main__':` DEVE ESTAR) ...
 if __name__ == '__main__':
