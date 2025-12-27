@@ -160,6 +160,18 @@ def gerar_xml_nfe(venda: dict, itens: list, ambiente: str = "2", serie: str = "2
         etree.SubElement(prod, "vUnCom").text = f"{preco:.2f}"
         etree.SubElement(prod, "vProd").text = f"{preco:.2f}"
 
+        # -------------------------------
+        # IMPOSTOS — ICMS ISENTO (LIVRO)
+        # -------------------------------
+        imposto = etree.SubElement(det, "imposto")
+        icms = etree.SubElement(imposto, "ICMS")
+        icms40 = etree.SubElement(icms, "ICMS40")
+
+        etree.SubElement(icms40, "orig").text = "0"
+        etree.SubElement(icms40, "CST").text = "40"   # Isento
+        etree.SubElement(icms40, "vICMS").text = "0.00"
+
+
         total_nf += preco
 
     # ------------------------------------------------------------
