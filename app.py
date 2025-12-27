@@ -1071,6 +1071,15 @@ def emitir_nfe():
         if not venda_doc:
             return jsonify({"error": "Venda não encontrada"}), 404
 
+        # ✅ BLOQUEIO: só emite NF-e se pagamento estiver aprovado
+        status = venda_doc.get("status_cielo_codigo")
+
+        if status != 2:
+            return jsonify({
+                "error": "Pagamento ainda não aprovado para emissão de NF-e",
+                "status_cielo_codigo": status
+            }), 400
+
         # Dados da venda
         venda = {
             "cliente_nome": venda_doc.get("cliente_nome"),
@@ -1080,20 +1089,10 @@ def emitir_nfe():
 
         itens = venda_doc.get("produtos", [])
 
-        # Gerar XML da NF-e
-        # 🔢 Controle de numeração NF-e
-        serie, numero_nfe = obter_proximo_numero_nfe()
+        # Gerar XML da NF-e (modo teste)
+        xml_nfe = gerar_xml_nfe(venda, itens)
 
-        xml_nfe = gerar_xml_nfe(
-            venda=venda,
-            itens=itens,
-            ambiente="2",
-            serie=serie,
-            numero_nfe=numero_nfe
-        )
-
-
-        # (modo teste – não envia)
+        # Não envia para SEFAZ ainda
         resultado = enviar_nfe_sefaz(xml_nfe)
 
         return jsonify({
@@ -1108,6 +1107,7 @@ def emitir_nfe():
             "error": "Erro ao emitir NF-e",
             "detalhes": str(e)
         }), 500
+
 
 # ... (ESTA LINHA ABAIXO É ONDE SEU `if __name__ == '__main__':` DEVE ESTAR) ...
 if __name__ == '__main__':
