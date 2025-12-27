@@ -182,6 +182,17 @@ def gerar_xml_nfe(venda: dict, itens: list, ambiente: str = "2", serie: str = "2
     etree.SubElement(icmsTot, "vProd").text = f"{total_nf:.2f}"
     etree.SubElement(icmsTot, "vNF").text = f"{total_nf:.2f}"
 
+    # ------------------------------------------------------------
+    # PAGAMENTO — PIX (modo padrão por enquanto)
+    # ------------------------------------------------------------
+    pag = etree.SubElement(infNFe, "pag")
+    detPag = etree.SubElement(pag, "detPag")
+
+    # 17 = PIX
+    etree.SubElement(detPag, "tPag").text = "17"
+    etree.SubElement(detPag, "vPag").text = f"{total_nf:.2f}"
+
+
     return etree.tostring(root, pretty_print=True, encoding="UTF-8", xml_declaration=True).decode("utf-8")
 
 
