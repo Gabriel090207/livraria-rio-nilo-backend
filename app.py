@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, send_file
-from nfe import gerar_xml_nfe, enviar_nfe_sefaz
+from nfe import gerar_xml_nfe, assinar_xml_nfe, enviar_nfe_sefaz
 
 from flask_cors import CORS
 import requests
