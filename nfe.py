@@ -240,6 +240,48 @@ def gerar_xml_nfe(venda: dict, itens: list, ambiente: str = "2", serie: str = "2
     return etree.tostring(root, pretty_print=True, encoding="UTF-8", xml_declaration=True).decode("utf-8")
 
 
+
+from signxml import XMLSigner, methods
+from cryptography.hazmat.primitives.serialization import pkcs12
+
+
+def assinar_xml_nfe(xml_string: str):
+    """
+    Assina o XML da NF-e conforme padrão SEFAZ (XMLDSig enveloped)
+    """
+    cert_path, cert_password = obter_caminho_certificado()
+
+    with open(cert_path, "rb") as f:
+        pfx_data = f.read()
+
+    private_key, certificate, _ = pkcs12.load_key_and_certificates(
+        pfx_data,
+        cert_password.encode()
+    )
+
+    xml_root = etree.fromstring(xml_string.encode("utf-8"))
+
+    signer = XMLSigner(
+        method=methods.enveloped,
+        signature_algorithm="rsa-sha1",
+        digest_algorithm="sha1",
+        c14n_algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"
+    )
+
+    signed_xml = signer.sign(
+        xml_root,
+        key=private_key,
+        cert=certificate,
+        reference_uri="#" + xml_root.find(".//{http://www.portalfiscal.inf.br/nfe}infNFe").get("Id")
+    )
+
+    return etree.tostring(
+        signed_xml,
+        encoding="UTF-8",
+        xml_declaration=True
+    ).decode("utf-8")
+
+
 def enviar_nfe_sefaz(xml, ambiente="2"):
     """
     AINDA EM MODO TESTE — NÃO ENVIA PARA SEFAZ
