@@ -66,7 +66,16 @@ def gerar_xml_nfe(venda: dict, itens: list, ambiente: str = "2", serie: str = "2
     root = etree.Element("NFe", xmlns=NS)
 
     # ⚠️ Id real da NF-e depende da CHAVE (44 dígitos). Vamos montar corretamente depois.
-    infNFe = etree.SubElement(root, "infNFe", Id="NFeTESTE", versao="4.00")
+    # Id provisório (único por emissão)
+    id_nfe = "NFe" + datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")
+
+    infNFe = etree.SubElement(
+        root,
+        "infNFe",
+        Id=id_nfe,
+        versao="4.00"
+    )
+
 
     # ------------------------------------------------------------
     # IDE
