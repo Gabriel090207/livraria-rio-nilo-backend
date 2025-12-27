@@ -1065,12 +1065,12 @@ def emitir_nfe():
         payment_id = data.get("payment_id")
 
         if not payment_id:
-            return jsonify({"error": "payment_id obrigatório"}), 400
+            return jsonify({"error": "payment_id não informado"}), 400
+
+        vendas = db.collection("vendas").where("payment_id", "==", payment_id).stream()
 
         venda_doc = None
         venda_ref = None
-
-        vendas = db.collection("vendas").where("payment_id", "==", payment_id).stream()
         for v in vendas:
             venda_doc = v.to_dict()
             venda_ref = v.reference
@@ -1080,36 +1080,45 @@ def emitir_nfe():
             return jsonify({"error": "Venda não encontrada"}), 404
 
         if venda_doc.get("status_cielo_codigo") != 2:
-            return jsonify({"error": "Pagamento não aprovado"}), 400
+            return jsonify({
+                "error": "NF-e só pode ser emitida para pagamento aprovado"
+            }), 400
 
         venda = {
             "cliente_nome": venda_doc["cliente_nome"],
-            "cliente_cpf": venda_doc["cliente_cpf"],
-            "cliente_email": venda_doc["cliente_email"]
+            "cliente_cpf": venda_doc["cliente_cpf"]
         }
 
-        serie, numero = obter_proximo_numero_nfe()
+        itens = venda_doc.get("produtos", [])
 
-        xml = gerar_xml_nfe(venda, venda_doc["produtos"], "2", serie, str(numero))
+        xml = gerar_xml_nfe(
+            venda=venda,
+            itens=itens,
+            ambiente="2",  # HOMOLOGAÇÃO
+            serie="2",
+            numero_nfe="1"
+        )
+
         xml_assinado = assinar_xml_nfe(xml)
-        sefaz = enviar_nfe_sefaz(xml_assinado, "2")
 
-        venda_ref.update({
-            "nfe_emitida": True,
-            "nfe_numero": numero,
-            "nfe_serie": serie,
-            "nfe_xml": xml_assinado,
-            "nfe_emitida_em": datetime.datetime.utcnow()
-        })
+        retorno = enviar_nfe_sefaz(xml_assinado, ambiente="2")
 
-        return jsonify({
-            "status": "ok",
-            "mensagem": "NF-e emitida",
-            "sefaz": sefaz
-        }), 200
+        if retorno.get("status") == "autorizada":
+            venda_ref.update({
+                "nfe_emitida": True,
+                "nfe_xml": retorno["xml_autorizado"],
+                "nfe_chave": retorno.get("chNFe"),
+                "nfe_emitida_em": datetime.datetime.utcnow()
+            })
+
+        return jsonify(retorno), 200
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({
+            "error": "Erro ao emitir NF-e",
+            "detalhes": str(e)
+        }), 500
+
 
 # ... (ESTA LINHA ABAIXO É ONDE SEU `if __name__ == '__main__':` DEVE ESTAR) ...
 if __name__ == '__main__':
