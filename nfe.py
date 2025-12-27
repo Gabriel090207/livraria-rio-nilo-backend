@@ -1,21 +1,27 @@
 # nfe.py
 # ------------------------------------------------------------
-# MÓDULO DE GERAÇÃO DE NF-e (XML – SEM ASSINATURA / SEM SEFAZ)
-# Compatível com backend Flask + Firestore
+# NF-e COMPLETA: Geração + Assinatura + Envio SEFAZ (SOAP)
 # ------------------------------------------------------------
 
-import re
 import os
+import re
+import time
 import base64
 import tempfile
 import datetime
+import requests
 from datetime import timezone
 from lxml import etree
 
+from cryptography.hazmat.primitives.serialization import pkcs12
+from cryptography.hazmat.primitives import serialization
+from signxml import XMLSigner, methods
 
-# ------------------------------------------------------------
+
+# ============================================================
 # UTILITÁRIOS
-# ------------------------------------------------------------
+# ============================================================
+
 def somente_numeros(valor: str) -> str:
     if not valor:
         return ""
@@ -23,19 +29,13 @@ def somente_numeros(valor: str) -> str:
 
 
 def obter_caminho_certificado():
-    """
-    Reconstrói o certificado .pfx a partir da variável
-    de ambiente CERT_PFX_BASE64 e retorna o caminho temporário.
-    (Ainda não usado na assinatura neste passo.)
-    """
     cert_base64 = os.getenv("CERT_PFX_BASE64")
     cert_password = os.getenv("CERT_PFX_PASSWORD")
 
     if not cert_base64 or not cert_password:
-        raise RuntimeError("Certificado digital não configurado no ambiente (CERT_PFX_BASE64 / CERT_PFX_PASSWORD).")
+        raise RuntimeError("CERT_PFX_BASE64 ou CERT_PFX_PASSWORD não configurado")
 
     cert_bytes = base64.b64decode(cert_base64)
-
     temp_dir = tempfile.gettempdir()
     cert_path = os.path.join(temp_dir, "certificado_nfe.pfx")
 
@@ -45,18 +45,49 @@ def obter_caminho_certificado():
     return cert_path, cert_password
 
 
+def obter_cert_pem_paths():
+    cert_path, cert_password = obter_caminho_certificado()
+
+    with open(cert_path, "rb") as f:
+        pfx_data = f.read()
+
+    private_key, certificate, _ = pkcs12.load_key_and_certificates(
+        pfx_data, cert_password.encode()
+    )
+
+    key_pem = private_key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption()
+    )
+
+    cert_pem = certificate.public_bytes(serialization.Encoding.PEM)
+
+    temp_dir = tempfile.gettempdir()
+    key_file = os.path.join(temp_dir, "nfe_key.pem")
+    cert_file = os.path.join(temp_dir, "nfe_cert.pem")
+
+    with open(key_file, "wb") as f:
+        f.write(key_pem)
+
+    with open(cert_file, "wb") as f:
+        f.write(cert_pem)
+
+    return cert_file, key_file
+
+
+# ============================================================
+# CHAVE NF-e
+# ============================================================
+
 def calcular_dv_chave_nfe(chave):
     pesos = [2,3,4,5,6,7,8,9] * 6
-    soma = 0
-
-    for i, num in enumerate(reversed(chave)):
-        soma += int(num) * pesos[i]
-
+    soma = sum(int(n) * pesos[i] for i, n in enumerate(reversed(chave)))
     resto = soma % 11
-    return 0 if resto in [0,1] else 11 - resto
+    return 0 if resto in (0, 1) else 11 - resto
 
 
-def gerar_chave_nfe(cUF, cnpj, modelo, serie, numero, tpEmis="1"):
+def gerar_chave_nfe(cUF, cnpj, modelo, serie, numero):
     agora = datetime.datetime.now()
     AAMM = agora.strftime("%y%m")
 
@@ -65,138 +96,63 @@ def gerar_chave_nfe(cUF, cnpj, modelo, serie, numero, tpEmis="1"):
     modelo = str(modelo).zfill(2)
     serie = str(serie).zfill(3)
     numero = str(numero).zfill(9)
-    tpEmis = str(tpEmis)
+    tpEmis = "1"
+    cNF = f"{agora.microsecond:08d}"
 
-    cNF = f"{datetime.datetime.now().microsecond:08d}"
-
-    chave_sem_dv = (
-        cUF + AAMM + cnpj + modelo + serie +
-        numero + tpEmis + cNF
-    )
-
-    dv = calcular_dv_chave_nfe(chave_sem_dv)
-
-    return chave_sem_dv + str(dv)
+    base = cUF + AAMM + cnpj + modelo + serie + numero + tpEmis + cNF
+    dv = calcular_dv_chave_nfe(base)
+    return base + str(dv)
 
 
+# ============================================================
+# XML NF-e
+# ============================================================
 
-# ------------------------------------------------------------
-# GERADOR DE XML DA NF-e (rascunho técnico)
-# ------------------------------------------------------------
-def gerar_xml_nfe(venda: dict, itens: list, ambiente: str = "2", serie: str = "2", numero_nfe: str = "1"):
-    """
-    ambiente:
-        "1" = Produção
-        "2" = Homologação
-
-    serie:
-        use "2" para evitar conflito com o sistema manual (recomendado)
-
-    numero_nfe:
-        neste passo ainda é fixo (vamos automatizar com Firestore no próximo passo)
-    """
-
+def gerar_xml_nfe(venda, itens, ambiente="2", serie="2", numero_nfe="1"):
     NS = "http://www.portalfiscal.inf.br/nfe"
 
+    chave = gerar_chave_nfe("29", "19291176000178", "55", serie, numero_nfe)
     root = etree.Element("NFe", xmlns=NS)
 
-    # ⚠️ Id real da NF-e depende da CHAVE (44 dígitos). Vamos montar corretamente depois.
-    # Id provisório (único por emissão)
-    chave_nfe = gerar_chave_nfe(
-        cUF="29",
-        cnpj="19291176000178",
-        modelo="55",
-        serie=serie,
-        numero=numero_nfe
-    )
+    infNFe = etree.SubElement(root, "infNFe", Id=f"NFe{chave}", versao="4.00")
 
-    id_nfe = "NFe" + chave_nfe
-
-
-    infNFe = etree.SubElement(
-        root,
-        "infNFe",
-        Id=id_nfe,
-        versao="4.00"
-    )
-
-
-    # ------------------------------------------------------------
-    # IDE
-    # ------------------------------------------------------------
     ide = etree.SubElement(infNFe, "ide")
-    etree.SubElement(ide, "cUF").text = "29"  # BA
+    etree.SubElement(ide, "cUF").text = "29"
     etree.SubElement(ide, "natOp").text = "Venda de mercadoria"
     etree.SubElement(ide, "mod").text = "55"
-    etree.SubElement(ide, "serie").text = str(serie)
-    etree.SubElement(ide, "nNF").text = str(numero_nfe)
+    etree.SubElement(ide, "serie").text = serie
+    etree.SubElement(ide, "nNF").text = numero_nfe
     etree.SubElement(ide, "tpNF").text = "1"
-
-    # data/hora em UTC
     etree.SubElement(ide, "dhEmi").text = datetime.datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S-00:00")
-
     etree.SubElement(ide, "tpAmb").text = ambiente
     etree.SubElement(ide, "finNFe").text = "1"
     etree.SubElement(ide, "indFinal").text = "1"
-    etree.SubElement(ide, "indPres").text = "2"  # Internet
+    etree.SubElement(ide, "indPres").text = "2"
     etree.SubElement(ide, "procEmi").text = "0"
     etree.SubElement(ide, "verProc").text = "1.0"
 
-    # ------------------------------------------------------------
-    # EMITENTE (DADOS REAIS)
-    # ------------------------------------------------------------
     emit = etree.SubElement(infNFe, "emit")
     etree.SubElement(emit, "CNPJ").text = "19291176000178"
     etree.SubElement(emit, "xNome").text = "Livraria e Distribuidora Rio Nilo Ltda"
     etree.SubElement(emit, "xFant").text = "Livraria Rio Nilo"
-
-    enderEmit = etree.SubElement(emit, "enderEmit")
-    etree.SubElement(enderEmit, "xLgr").text = "Avenida Aliomar Baleeiro"
-    etree.SubElement(enderEmit, "nro").text = "2262"
-    etree.SubElement(enderEmit, "xBairro").text = "Jd Cajazeiras"
-    etree.SubElement(enderEmit, "cMun").text = "2927408"
-    etree.SubElement(enderEmit, "xMun").text = "Salvador"
-    etree.SubElement(enderEmit, "UF").text = "BA"
-    etree.SubElement(enderEmit, "CEP").text = "41230455"
-    etree.SubElement(enderEmit, "cPais").text = "1058"
-    etree.SubElement(enderEmit, "xPais").text = "BRASIL"
-
     etree.SubElement(emit, "IE").text = "113382426"
-    etree.SubElement(emit, "CRT").text = "3"  # Lucro Presumido (CRT 3)
+    etree.SubElement(emit, "CRT").text = "3"
 
-    # ------------------------------------------------------------
-    # DESTINATÁRIO (CPF)
-    # ------------------------------------------------------------
     dest = etree.SubElement(infNFe, "dest")
-    cpf_limpo = somente_numeros(venda.get("cliente_cpf"))
-    etree.SubElement(dest, "CPF").text = cpf_limpo
-    etree.SubElement(dest, "xNome").text = venda.get("cliente_nome", "Consumidor Final")
+    etree.SubElement(dest, "CPF").text = somente_numeros(venda["cliente_cpf"])
+    etree.SubElement(dest, "xNome").text = venda["cliente_nome"]
 
-    # ------------------------------------------------------------
-    # PRODUTOS
-    # ------------------------------------------------------------
     total_nf = 0.0
 
     for i, item in enumerate(itens, start=1):
         det = etree.SubElement(infNFe, "det", nItem=str(i))
         prod = etree.SubElement(det, "prod")
 
-        nome = item.get("name", "Produto")
-
-        preco_raw = str(item.get("price", "0"))
-        preco_limpo = (
-            preco_raw.replace("R$", "")
-            .replace(" ", "")
-            .replace(".", "")
-            .replace(",", ".")
-        )
-        try:
-            preco = float(preco_limpo)
-        except Exception:
-            preco = 0.0
+        preco = float(str(item["price"]).replace("R$", "").replace(",", "."))
+        total_nf += preco
 
         etree.SubElement(prod, "cProd").text = str(i)
-        etree.SubElement(prod, "xProd").text = nome
+        etree.SubElement(prod, "xProd").text = item["name"]
         etree.SubElement(prod, "NCM").text = "49019900"
         etree.SubElement(prod, "CFOP").text = "5102"
         etree.SubElement(prod, "uCom").text = "UN"
@@ -204,98 +160,88 @@ def gerar_xml_nfe(venda: dict, itens: list, ambiente: str = "2", serie: str = "2
         etree.SubElement(prod, "vUnCom").text = f"{preco:.2f}"
         etree.SubElement(prod, "vProd").text = f"{preco:.2f}"
 
-        # -------------------------------
-        # IMPOSTOS — ICMS ISENTO (LIVRO)
-        # -------------------------------
         imposto = etree.SubElement(det, "imposto")
         icms = etree.SubElement(imposto, "ICMS")
         icms40 = etree.SubElement(icms, "ICMS40")
-
         etree.SubElement(icms40, "orig").text = "0"
-        etree.SubElement(icms40, "CST").text = "40"   # Isento
+        etree.SubElement(icms40, "CST").text = "40"
         etree.SubElement(icms40, "vICMS").text = "0.00"
 
-
-        total_nf += preco
-
-    # ------------------------------------------------------------
-    # TOTAL (rascunho)
-    # ------------------------------------------------------------
     total = etree.SubElement(infNFe, "total")
     icmsTot = etree.SubElement(total, "ICMSTot")
     etree.SubElement(icmsTot, "vProd").text = f"{total_nf:.2f}"
     etree.SubElement(icmsTot, "vNF").text = f"{total_nf:.2f}"
 
-    # ------------------------------------------------------------
-    # PAGAMENTO — PIX (modo padrão por enquanto)
-    # ------------------------------------------------------------
     pag = etree.SubElement(infNFe, "pag")
     detPag = etree.SubElement(pag, "detPag")
-
-    # 17 = PIX
     etree.SubElement(detPag, "tPag").text = "17"
     etree.SubElement(detPag, "vPag").text = f"{total_nf:.2f}"
 
-
-    return etree.tostring(root, pretty_print=True, encoding="UTF-8", xml_declaration=True).decode("utf-8")
-
+    return etree.tostring(root, pretty_print=True, encoding="UTF-8", xml_declaration=True).decode()
 
 
-from signxml import XMLSigner, methods
-from cryptography.hazmat.primitives.serialization import pkcs12
+# ============================================================
+# ASSINATURA
+# ============================================================
 
-
-def assinar_xml_nfe(xml_string: str):
-    """
-    Assina o XML da NF-e conforme padrão SEFAZ (XMLDSig enveloped)
-    """
-    cert_path, cert_password = obter_caminho_certificado()
-
+def assinar_xml_nfe(xml):
+    cert_path, password = obter_caminho_certificado()
     with open(cert_path, "rb") as f:
-        pfx_data = f.read()
+        pfx = f.read()
 
-    private_key, certificate, _ = pkcs12.load_key_and_certificates(
-        pfx_data,
-        cert_password.encode()
-    )
+    key, cert, _ = pkcs12.load_key_and_certificates(pfx, password.encode())
 
-    xml_root = etree.fromstring(xml_string.encode("utf-8"))
-
+    root = etree.fromstring(xml.encode())
     signer = XMLSigner(
         method=methods.enveloped,
         signature_algorithm="rsa-sha256",
-        digest_algorithm="sha256",
-        c14n_algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"
+        digest_algorithm="sha256"
     )
 
-
-    from cryptography.hazmat.primitives import serialization
-
-    cert_pem = certificate.public_bytes(
-        encoding=serialization.Encoding.PEM
+    signed = signer.sign(
+        root,
+        key=key,
+        cert=cert,
+        reference_uri="#" + root.find(".//{*}infNFe").get("Id")
     )
 
-    signed_xml = signer.sign(
-        xml_root,
-        key=private_key,
-        cert=cert_pem,
-        reference_uri="#" + xml_root.find(".//{http://www.portalfiscal.inf.br/nfe}infNFe").get("Id")
+    return etree.tostring(signed, encoding="UTF-8", xml_declaration=True).decode()
+
+
+# ============================================================
+# ENVIO SEFAZ (SOAP)
+# ============================================================
+
+def enviar_nfe_sefaz(xml_assinado, ambiente="2"):
+    url = os.getenv(
+        "NFE_AUTORIZACAO_URL_HOM" if ambiente == "2" else "NFE_AUTORIZACAO_URL_PROD"
     )
 
+    cert, key = obter_cert_pem_paths()
 
-    return etree.tostring(
-        signed_xml,
-        encoding="UTF-8",
-        xml_declaration=True
-    ).decode("utf-8")
-
-
-def enviar_nfe_sefaz(xml, ambiente="2"):
+    envelope = f"""
+    <soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">
+      <soap12:Body>
+        <nfeDadosMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeAutorizacao4">
+          <enviNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">
+            <idLote>{int(time.time())}</idLote>
+            <indSinc>1</indSinc>
+            {xml_assinado}
+          </enviNFe>
+        </nfeDadosMsg>
+      </soap12:Body>
+    </soap12:Envelope>
     """
-    AINDA EM MODO TESTE — NÃO ENVIA PARA SEFAZ
-    """
+
+    r = requests.post(
+        url,
+        data=envelope.encode(),
+        headers={"Content-Type": "application/soap+xml"},
+        cert=(cert, key),
+        timeout=60
+    )
+
     return {
-        "status": "teste",
-        "mensagem": "NF-e simulada (SEFAZ ainda não chamado)",
-        "xml": xml
+        "http_status": r.status_code,
+        "resposta": r.text
     }

@@ -1051,6 +1051,13 @@ def get_financeiro_resumo():
         return jsonify({"error": f"Erro ao gerar resumo financeiro: {str(e)}"}), 500
 
 
+
+from nfe import (
+    gerar_xml_nfe,
+    assinar_xml_nfe,
+    enviar_nfe_sefaz
+)
+
 @app.route("/emitir-nfe", methods=["POST"])
 def emitir_nfe():
     try:
@@ -1058,13 +1065,12 @@ def emitir_nfe():
         payment_id = data.get("payment_id")
 
         if not payment_id:
-            return jsonify({"error": "payment_id não informado"}), 400
-
-        # 🔍 Buscar venda no Firestore
-        vendas = db.collection("vendas").where("payment_id", "==", payment_id).stream()
+            return jsonify({"error": "payment_id obrigatório"}), 400
 
         venda_doc = None
         venda_ref = None
+
+        vendas = db.collection("vendas").where("payment_id", "==", payment_id).stream()
         for v in vendas:
             venda_doc = v.to_dict()
             venda_ref = v.reference
@@ -1073,58 +1079,37 @@ def emitir_nfe():
         if not venda_doc:
             return jsonify({"error": "Venda não encontrada"}), 404
 
-        # ✅ EMITIR NF-e SOMENTE PARA PAGAMENTO APROVADO
         if venda_doc.get("status_cielo_codigo") != 2:
-            return jsonify({
-                "error": "NF-e só pode ser emitida para vendas aprovadas",
-                "status_atual": venda_doc.get("status_cielo_codigo")
-            }), 400
+            return jsonify({"error": "Pagamento não aprovado"}), 400
 
-        # 🧾 Dados do cliente
         venda = {
-            "cliente_nome": venda_doc.get("cliente_nome"),
-            "cliente_cpf": venda_doc.get("cliente_cpf"),
-            "cliente_email": venda_doc.get("cliente_email")
+            "cliente_nome": venda_doc["cliente_nome"],
+            "cliente_cpf": venda_doc["cliente_cpf"],
+            "cliente_email": venda_doc["cliente_email"]
         }
 
-        itens = venda_doc.get("produtos", [])
+        serie, numero = obter_proximo_numero_nfe()
 
-        # 🧱 Gerar XML da NF-e
-        xml_nfe = gerar_xml_nfe(
-            venda=venda,
-            itens=itens,
-            ambiente="2",   # 👉 2 = homologação | 1 = produção
-            serie="2"
-        )
+        xml = gerar_xml_nfe(venda, venda_doc["produtos"], "2", serie, str(numero))
+        xml_assinado = assinar_xml_nfe(xml)
+        sefaz = enviar_nfe_sefaz(xml_assinado, "2")
 
-        # 🔐 Assinar XML com certificado A1
-        xml_assinado = assinar_xml_nfe(xml_nfe)
-
-        # 🚀 (por enquanto ainda não envia para SEFAZ)
-        resultado_sefaz = enviar_nfe_sefaz(xml_assinado)
-
-        # 💾 Marcar NF-e como emitida no Firestore
         venda_ref.update({
             "nfe_emitida": True,
+            "nfe_numero": numero,
+            "nfe_serie": serie,
             "nfe_xml": xml_assinado,
-            "nfe_serie": "2",
-            "nfe_ambiente": "homologacao",
             "nfe_emitida_em": datetime.datetime.utcnow()
         })
 
         return jsonify({
             "status": "ok",
-            "mensagem": "NF-e gerada com sucesso (modo teste)",
-            "xml_nfe": xml_assinado,
-            "sefaz": resultado_sefaz
+            "mensagem": "NF-e emitida",
+            "sefaz": sefaz
         }), 200
 
     except Exception as e:
-        return jsonify({
-            "error": "Erro ao emitir NF-e",
-            "detalhes": str(e)
-        }), 500
-
+        return jsonify({"error": str(e)}), 500
 
 # ... (ESTA LINHA ABAIXO É ONDE SEU `if __name__ == '__main__':` DEVE ESTAR) ...
 if __name__ == '__main__':
