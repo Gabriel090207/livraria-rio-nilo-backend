@@ -269,12 +269,19 @@ def assinar_xml_nfe(xml_string: str):
     )
 
 
+    from cryptography.hazmat.primitives import serialization
+
+    cert_pem = certificate.public_bytes(
+        encoding=serialization.Encoding.PEM
+    )
+
     signed_xml = signer.sign(
         xml_root,
         key=private_key,
-        cert=certificate,
+        cert=cert_pem,
         reference_uri="#" + xml_root.find(".//{http://www.portalfiscal.inf.br/nfe}infNFe").get("Id")
     )
+
 
     return etree.tostring(
         signed_xml,
