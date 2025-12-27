@@ -45,6 +45,41 @@ def obter_caminho_certificado():
     return cert_path, cert_password
 
 
+def calcular_dv_chave_nfe(chave):
+    pesos = [2,3,4,5,6,7,8,9] * 6
+    soma = 0
+
+    for i, num in enumerate(reversed(chave)):
+        soma += int(num) * pesos[i]
+
+    resto = soma % 11
+    return 0 if resto in [0,1] else 11 - resto
+
+
+def gerar_chave_nfe(cUF, cnpj, modelo, serie, numero, tpEmis="1"):
+    agora = datetime.datetime.now()
+    AAMM = agora.strftime("%y%m")
+
+    cUF = str(cUF).zfill(2)
+    cnpj = somente_numeros(cnpj).zfill(14)
+    modelo = str(modelo).zfill(2)
+    serie = str(serie).zfill(3)
+    numero = str(numero).zfill(9)
+    tpEmis = str(tpEmis)
+
+    cNF = f"{datetime.datetime.now().microsecond:08d}"
+
+    chave_sem_dv = (
+        cUF + AAMM + cnpj + modelo + serie +
+        numero + tpEmis + cNF
+    )
+
+    dv = calcular_dv_chave_nfe(chave_sem_dv)
+
+    return chave_sem_dv + str(dv)
+
+
+
 # ------------------------------------------------------------
 # GERADOR DE XML DA NF-e (rascunho técnico)
 # ------------------------------------------------------------
@@ -67,7 +102,16 @@ def gerar_xml_nfe(venda: dict, itens: list, ambiente: str = "2", serie: str = "2
 
     # ⚠️ Id real da NF-e depende da CHAVE (44 dígitos). Vamos montar corretamente depois.
     # Id provisório (único por emissão)
-    id_nfe = "NFe" + datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")
+    chave_nfe = gerar_chave_nfe(
+        cUF="29",
+        cnpj="19291176000178",
+        modelo="55",
+        serie=serie,
+        numero=numero_nfe
+    )
+
+    id_nfe = "NFe" + chave_nfe
+
 
     infNFe = etree.SubElement(
         root,
