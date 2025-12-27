@@ -222,12 +222,19 @@ def gerar_xml_nfe(venda, itens, ambiente="2", serie="2", numero_nfe="1"):
 
 def assinar_xml_nfe(xml):
     cert_path, password = obter_caminho_certificado()
+
     with open(cert_path, "rb") as f:
         pfx = f.read()
 
-    key, cert, _ = pkcs12.load_key_and_certificates(pfx, password.encode())
+    key, cert, _ = pkcs12.load_key_and_certificates(
+        pfx,
+        password.encode()
+    )
 
-    root = etree.fromstring(xml.encode())
+    cert_pem = cert.public_bytes(serialization.Encoding.PEM)
+
+    root = etree.fromstring(xml.encode("utf-8"))
+
     signer = XMLSigner(
         method=methods.enveloped,
         signature_algorithm="rsa-sha256",
@@ -237,12 +244,15 @@ def assinar_xml_nfe(xml):
     signed = signer.sign(
         root,
         key=key,
-        cert=cert,
+        cert=cert_pem,
         reference_uri="#" + root.find(".//{*}infNFe").get("Id")
     )
 
-    return etree.tostring(signed, encoding="UTF-8", xml_declaration=True).decode()
-
+    return etree.tostring(
+        signed,
+        encoding="UTF-8",
+        xml_declaration=True
+    ).decode("utf-8")
 
 # ============================================================
 # ENVIO SEFAZ (SOAP)
