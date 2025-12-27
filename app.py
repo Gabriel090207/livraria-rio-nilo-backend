@@ -1058,29 +1058,54 @@ def emitir_nfe():
         payment_id = data.get("payment_id")
 
         if not payment_id:
-            return jsonify({"error": "payment_id não informado"}), 400
+            return jsonify({"erro": "payment_id não informado"}), 400
 
-        # Buscar venda no Firestore
-        vendas = db.collection("vendas").where("payment_id", "==", payment_id).stream()
+        # -------------------------------------------------
+        # BUSCAR VENDA PELO PAYMENT_ID
+        # -------------------------------------------------
+        vendas_ref = db.collection("vendas").where("payment_id", "==", payment_id).stream()
 
         venda_doc = None
-        for v in vendas:
+        venda_id = None
+
+        for v in vendas_ref:
             venda_doc = v.to_dict()
+            venda_id = v.id
             break
 
         if not venda_doc:
-            return jsonify({"error": "Venda não encontrada"}), 404
+            return jsonify({"erro": "Venda não encontrada"}), 404
 
-        # ✅ BLOQUEIO: só emite NF-e se pagamento estiver aprovado
-        status = venda_doc.get("status_cielo_codigo")
+        # -------------------------------------------------
+        # VALIDAR SE A VENDA ESTÁ APROVADA
+        # (cartão = status 2)
+        # -------------------------------------------------
+        status_codigo = venda_doc.get("status_cielo_codigo")
 
-        if status != 2:
+        if status_codigo != 2:
             return jsonify({
-                "error": "Pagamento ainda não aprovado para emissão de NF-e",
-                "status_cielo_codigo": status
+                "erro": "Venda não aprovada para emissão de NF-e",
+                "status_cielo_codigo": status_codigo
             }), 400
 
-        # Dados da venda
+        # -------------------------------------------------
+        # LER CONTROLE DE NFE NO FIRESTORE
+        # -------------------------------------------------
+        config_ref = db.collection("configuracoes").document("nfe")
+        config_doc = config_ref.get()
+
+        if not config_doc.exists:
+            return jsonify({"erro": "Configuração de NF-e não encontrada"}), 500
+
+        config = config_doc.to_dict()
+
+        serie = config.get("serie", "2")
+        ultimo_numero = int(config.get("ultimo_numero", 0))
+        proximo_numero = ultimo_numero + 1
+
+        # -------------------------------------------------
+        # MONTAR DADOS DA VENDA
+        # -------------------------------------------------
         venda = {
             "cliente_nome": venda_doc.get("cliente_nome"),
             "cliente_cpf": venda_doc.get("cliente_cpf"),
@@ -1089,22 +1114,50 @@ def emitir_nfe():
 
         itens = venda_doc.get("produtos", [])
 
-        # Gerar XML da NF-e (modo teste)
-        xml_nfe = gerar_xml_nfe(venda, itens)
+        # -------------------------------------------------
+        # GERAR XML DA NF-e (HOMOLOGAÇÃO)
+        # -------------------------------------------------
+        xml_nfe = gerar_xml_nfe(
+            venda=venda,
+            itens=itens,
+            ambiente="2",
+            serie=serie,
+            numero_nfe=proximo_numero
+        )
 
-        # Não envia para SEFAZ ainda
-        resultado = enviar_nfe_sefaz(xml_nfe)
+        # -------------------------------------------------
+        # ATUALIZAR NUMERAÇÃO NO FIRESTORE
+        # -------------------------------------------------
+        config_ref.update({
+            "ultimo_numero": proximo_numero
+        })
 
+        # -------------------------------------------------
+        # MARCAR VENDA COMO NF EMITIDA
+        # -------------------------------------------------
+        db.collection("vendas").document(venda_id).update({
+            "nfe_emitida": True,
+            "nfe_numero": proximo_numero,
+            "nfe_serie": serie,
+            "nfe_data": firestore.SERVER_TIMESTAMP
+        })
+
+        # -------------------------------------------------
+        # RESPOSTA FINAL
+        # -------------------------------------------------
         return jsonify({
             "status": "ok",
-            "mensagem": "NF-e gerada (modo teste)",
-            "resultado_sefaz": resultado,
+            "mensagem": "NF-e gerada com sucesso (modo teste)",
+            "nfe": {
+                "serie": serie,
+                "numero": proximo_numero
+            },
             "xml_nfe": xml_nfe
         }), 200
 
     except Exception as e:
         return jsonify({
-            "error": "Erro ao emitir NF-e",
+            "erro": "Erro ao emitir NF-e",
             "detalhes": str(e)
         }), 500
 
