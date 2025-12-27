@@ -334,7 +334,15 @@ def enviar_nfe_sefaz(xml_assinado: str, ambiente: str = "2"):
     dados_msg = f'<nfeDadosMsg xmlns="{NS_AUT}">{envi_xml}</nfeDadosMsg>'
     soap_xml = soap12(dados_msg)
 
-    r = requests.post(url_aut, data=soap_xml.encode("utf-8"), headers=headers, cert=(cert_pem, key_pem), timeout=60)
+    r = requests.post(
+        url_aut,
+        data=soap_xml.encode("utf-8"),
+        headers=headers,
+        cert=(cert_pem, key_pem),
+        verify=os.path.join(os.path.dirname(__file__), "certs", "cacert.pem"),
+        timeout=60
+    )
+
 
     if r.status_code >= 400:
         return {"status": "erro_http", "http_status": r.status_code, "body": r.text}
@@ -372,7 +380,15 @@ def enviar_nfe_sefaz(xml_assinado: str, ambiente: str = "2"):
             dados_msg2 = f'<nfeDadosMsg xmlns="{NS_RET}">{cons}</nfeDadosMsg>'
             soap_xml2 = soap12(dados_msg2)
 
-            r2 = requests.post(url_ret, data=soap_xml2.encode("utf-8"), headers=headers, cert=(cert_pem, key_pem), timeout=60)
+            r2 = requests.post(
+                url_ret,
+                data=soap_xml2.encode("utf-8"),
+                headers=headers,
+                cert=(cert_pem, key_pem),
+                verify=os.path.join(os.path.dirname(__file__), "certs", "cacert.pem"),
+                timeout=60
+            )
+
 
             cStat2 = parse_text(r2.text, "cStat")
             xMotivo2 = parse_text(r2.text, "xMotivo")
