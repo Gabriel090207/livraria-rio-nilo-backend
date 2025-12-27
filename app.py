@@ -15,6 +15,35 @@ from openpyxl.styles import Font, Alignment  # Para estilos em XLSX
 import sys  # Para sys.exit caso a inicialização do Firebase falhe criticamente
 
 
+
+from google.cloud import firestore
+
+def obter_proximo_numero_nfe():
+    ref = db.collection("nfe_config").document("controle")
+
+    @firestore.transactional
+    def transacao(transaction):
+        snap = ref.get(transaction=transaction)
+
+        if not snap.exists:
+            raise RuntimeError("Documento nfe_config/controle não existe")
+
+        dados = snap.to_dict()
+        ultimo = dados.get("ultimo_numero", 0)
+        serie = dados.get("serie", "2")
+
+        proximo = ultimo + 1
+
+        transaction.update(ref, {
+            "ultimo_numero": proximo
+        })
+
+        return serie, proximo
+
+    transaction = db.transaction()
+    return transacao(transaction)
+
+
 # ----- OneSignal Push Notifications -----
 ONESIGNAL_APP_ID = "4e3346a9-bac1-4cbb-b366-4f17ffa4e0e4"
 ONESIGNAL_API_KEY = "c7nli6j2wuuyuho2dwb5kai3w"  # Cole aqui
@@ -1052,7 +1081,17 @@ def emitir_nfe():
         itens = venda_doc.get("produtos", [])
 
         # Gerar XML da NF-e
-        xml_nfe = gerar_xml_nfe(venda, itens)
+        # 🔢 Controle de numeração NF-e
+        serie, numero_nfe = obter_proximo_numero_nfe()
+
+        xml_nfe = gerar_xml_nfe(
+            venda=venda,
+            itens=itens,
+            ambiente="2",
+            serie=serie,
+            numero_nfe=numero_nfe
+        )
+
 
         # (modo teste – não envia)
         resultado = enviar_nfe_sefaz(xml_nfe)
