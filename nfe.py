@@ -339,7 +339,7 @@ def enviar_nfe_sefaz(xml_assinado: str, ambiente: str = "2"):
         data=soap_xml.encode("utf-8"),
         headers=headers,
         cert=(cert_pem, key_pem),
-        verify=os.path.join(os.path.dirname(__file__), "certs", "cacert.pem"),
+        verify=False
         timeout=60
     )
 
@@ -385,7 +385,7 @@ def enviar_nfe_sefaz(xml_assinado: str, ambiente: str = "2"):
                 data=soap_xml2.encode("utf-8"),
                 headers=headers,
                 cert=(cert_pem, key_pem),
-                verify=os.path.join(os.path.dirname(__file__), "certs", "cacert.pem"),
+                verify=False
                 timeout=60
             )
 
