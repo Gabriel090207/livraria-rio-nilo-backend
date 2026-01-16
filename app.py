@@ -874,6 +874,11 @@ def get_vendas_por_escola(nome_escola_url):
         for doc in vendas_query:
             venda = doc.to_dict()
 
+            # ✅ MOSTRAR SOMENTE VENDAS APROVADAS
+            if venda.get('status_cielo_codigo') != 2:
+                continue
+
+
             aluno_nome = venda.get('cliente_nome')
             if not aluno_nome:
                 continue
