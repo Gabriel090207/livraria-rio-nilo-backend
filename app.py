@@ -869,23 +869,37 @@ def get_vendas_por_escola(nome_escola_url):
                          .order_by('data_hora', direction=firestore.Query.DESCENDING).stream()
         
         vendas_detalhadas = []
+        alunos_map = set()
+
         for doc in vendas_query:
             venda = doc.to_dict()
-            venda['id'] = doc.id 
-            
+
+            aluno_nome = venda.get('cliente_nome')
+            if not aluno_nome:
+                continue
+
+            chave_aluno = aluno_nome.strip().lower()
+
+    # 👉 Se já existe, ignora
+            if chave_aluno in alunos_map:
+                continue
+
+            alunos_map.add(chave_aluno)
+
             data_compra_iso = None
             if isinstance(venda.get('data_hora'), datetime.datetime):
                 data_compra_iso = venda['data_hora'].isoformat()
             else:
-                data_compra_iso = 'N/A' 
+                data_compra_iso = 'N/A'
 
             vendas_detalhadas.append({
-                'aluno': venda.get('cliente_nome', 'N/A'),
+                'aluno': aluno_nome,
                 'escola': venda.get('cliente_escola', 'N/A'),
                 'produto': venda.get('produto', 'N/A'),
                 'valor': float(venda.get('valor', 0)),
                 'data_compra': data_compra_iso
             })
+
         
         return jsonify(vendas_detalhadas), 200
 
