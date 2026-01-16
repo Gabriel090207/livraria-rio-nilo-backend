@@ -831,14 +831,20 @@ def get_relatorio_escolas():
             venda = doc.to_dict()
             escola_nome = venda.get('cliente_escola', 'Escola Desconhecida')
             cliente_email = venda.get('cliente_email', 'Aluno Desconhecido') 
-            produto_nome = venda.get('produto', 'Produto Desconhecido')
+            produto_nome = (
+                venda.get('produtos')[0].get('name')
+                if isinstance(venda.get('produtos'), list) and len(venda.get('produtos')) > 0
+                else 'Produto Desconhecido'
+            )
+
             valor = float(venda.get('valor', 0))
 
-            if venda.get('status_cielo_codigo') in [2, 12, 1]: 
+            if venda.get('status_cielo_codigo') == 2:  # SOMENTE APROVADAS
                 escolas_resumo[escola_nome]['total_vendas'] += 1
                 escolas_resumo[escola_nome]['receita_total'] += valor
                 escolas_resumo[escola_nome]['produtos_vendidos'][produto_nome] += 1
-                escolas_resumo[escola_nome]['alunos_compraram_ids'].add(cliente_email) 
+                escolas_resumo[escola_nome]['alunos_compraram_ids'].add(cliente_email)
+
 
         resumo_escolas_lista = []
         for nome_escola, dados_escola in escolas_resumo.items():
