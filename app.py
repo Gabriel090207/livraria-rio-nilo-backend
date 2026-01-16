@@ -783,11 +783,17 @@ def get_receita_por_produto():
             venda = doc.to_dict()
             # Considera vendas aprovadas, Pix gerado ou Boleto emitido
             if venda.get('status_cielo_codigo') in [2, 12, 1]: 
-                produto_nome = venda.get('produto', 'Produto Desconhecido')
+                produtos = venda.get('produtos', [])
+
+                if not isinstance(produtos, list) or len(produtos) == 0:
+                    continue
+
+                produto_nome = produtos[0].get('name', 'Produto Desconhecido')
                 valor = float(venda.get('valor', 0))
 
                 produtos_data[produto_nome]['quantidade'] += 1
                 produtos_data[produto_nome]['receita'] += valor
+
 
         lista_produtos = []
         for nome, dados in produtos_data.items():
