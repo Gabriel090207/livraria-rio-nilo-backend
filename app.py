@@ -900,7 +900,7 @@ def get_vendas_por_escola(nome_escola_url):
             vendas_detalhadas.append({
                 'aluno': aluno_nome,
                 'escola': venda.get('cliente_escola', 'N/A'),
-                'produto': venda.get('produto', 'N/A'),
+                'produto': produto_nome,
                 'valor': float(venda.get('valor', 0)),
                 'data_compra': data_compra_iso
             })
@@ -942,7 +942,12 @@ def exportar_alunos_xlsx(nome_escola_url):
             vendas_detalhadas_para_export.append({
                 'aluno': venda.get('cliente_nome', 'N/A'),
                 'escola': venda.get('cliente_escola', 'N/A'),
-                'produto': venda.get('produto', 'N/A'),
+                'produto': (
+                    venda.get('produtos')[0].get('name')
+                    if isinstance(venda.get('produtos'), list) and len(venda.get('produtos')) > 0
+                    else 'N/A'
+                ),
+
                 'valor': valor_excel,
                 'data_compra': data_compra_excel 
             })
