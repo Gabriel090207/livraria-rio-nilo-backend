@@ -891,11 +891,22 @@ def get_vendas_por_escola(nome_escola_url):
 
             alunos_map.add(chave_aluno)
 
+
+            # 🟢 PRODUTO (SEGURO)
+            produto_nome = 'N/A'
+            produtos = venda.get('produtos', [])
+
+            if isinstance(produtos, list) and len(produtos) > 0:
+                produto_nome = produtos[0].get('name', 'N/A')
+
             data_compra_iso = None
             if isinstance(venda.get('data_hora'), datetime.datetime):
                 data_compra_iso = venda['data_hora'].isoformat()
             else:
                 data_compra_iso = 'N/A'
+
+            
+
 
             vendas_detalhadas.append({
                 'aluno': aluno_nome,
