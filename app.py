@@ -710,11 +710,15 @@ def get_vendas():
         if 'db' not in globals() or db is None:
             return jsonify({"error": "Serviço de banco de dados indisponível."}), 500
 
+        # --- PARÂMETROS ---
         period = request.args.get('period', 'today') 
+        school_filter = request.args.get('school') # <--- NOVO: Recebe o filtro do front
+        
         now_utc = datetime.datetime.utcnow() 
         start_date = None
         end_date = None
 
+        # --- LÓGICA DE DATAS ---
         if period == 'today':
             start_date = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
             end_date = now_utc.replace(hour=23, minute=59, second=59, microsecond=999999)
@@ -734,37 +738,50 @@ def get_vendas():
             first_day_current_month = now_utc.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
             end_date = first_day_current_month - datetime.timedelta(microseconds=1)
             start_date = end_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        elif period == 'allTime':
-            start_date = None
-            end_date = None
-        else:
-            start_date = None 
-            end_date = None 
-
+        
+        # --- QUERY ---
         vendas_query = db.collection('vendas')
+
+        # 1. 🔥 OTIMIZAÇÃO CRÍTICA: Filtra por escola no BANCO DE DADOS
+        if school_filter:
+            # Decodifica string caso necessário (ex: espaços %20)
+            school_clean = requests.utils.unquote(school_filter)
+            vendas_query = vendas_query.where('cliente_escola', '==', school_clean)
+
+        # 2. Filtros de Data
         if start_date:
             vendas_query = vendas_query.where('data_hora', '>=', start_date)
         if end_date:
             vendas_query = vendas_query.where('data_hora', '<=', end_date)
             
+        # 3. Proteção contra Crash: Se não tem filtro de escola e pede "tudo", limita a 100
+        if not school_filter and period == 'allTime':
+             vendas_query = vendas_query.limit(100)
+
         docs = vendas_query.stream()
+        
         lista_vendas = []
         for doc in docs:
             venda = doc.to_dict()
             venda['id'] = doc.id
+            
+            # Tratamento de data
             if isinstance(venda.get('data_hora'), datetime.datetime):
                 venda['data_hora'] = venda['data_hora'].isoformat() 
             else:
                 venda['data_hora'] = None 
+            
             lista_vendas.append(venda)
         
+        # Ordenação final em memória (seguro agora pois a lista é pequena)
         lista_vendas.sort(key=lambda x: x.get('data_hora', '0000-01-01T00:00:00') if x.get('data_hora') else '', reverse=True)
+        
+        print(f"Retornando {len(lista_vendas)} vendas. Filtro Escola: {school_filter}")
         return jsonify(lista_vendas), 200
 
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": f"Erro ao carregar vendas: {str(e)}"}), 500
-
 
 # --- NOVAS ROTAS PARA RELATÓRIOS ESPECÍFICOS ---
 
@@ -944,40 +961,67 @@ def exportar_alunos_xlsx(nome_escola_url):
         nome_escola = requests.utils.unquote(nome_escola_url) 
         print(f"Iniciando exportação XLSX para a escola: '{nome_escola}'")
 
+        # Busca vendas ordenadas
         vendas_query = db.collection('vendas').where('cliente_escola', '==', nome_escola) \
                          .order_by('data_hora', direction=firestore.Query.DESCENDING).stream()
         
         vendas_detalhadas_para_export = []
+        alunos_map = set() # Controle de duplicidade
+
         for doc in vendas_query:
             venda = doc.to_dict()
             
+            # --- CORREÇÃO 1: FILTRO DE STATUS ---
+            # Só aceita vendas APROVADAS (Código 2 na Cielo)
+            if venda.get('status_cielo_codigo') != 2:
+                continue
+
+            # --- CORREÇÃO 2: REMOÇÃO DE DUPLICIDADE ---
+            # Garante que não apareça o mesmo aluno duas vezes (mesma lógica da tela visual)
+            aluno_nome = venda.get('cliente_nome')
+            if not aluno_nome:
+                continue
+
+            chave_aluno = aluno_nome.strip().lower()
+            if chave_aluno in alunos_map:
+                continue # Pula se o aluno já foi processado nesta lista
+            
+            alunos_map.add(chave_aluno)
+
+            # --- PREPARAÇÃO DOS DADOS ---
             data_compra_excel = venda.get('data_hora') 
             
-            # --- CORREÇÃO: Converte datetime aware para naive antes de exportar para Excel ---
             if isinstance(data_compra_excel, datetime.datetime):
                 if data_compra_excel.tzinfo is not None and data_compra_excel.tzinfo.utcoffset(data_compra_excel) is not None:
                     data_compra_excel = data_compra_excel.astimezone(datetime.timezone.utc).replace(tzinfo=None)
             else:
                 data_compra_excel = str(data_compra_excel) 
 
-            valor_excel = float(venda.get('valor', 0))
+            # Uso de float seguro ou 0
+            try:
+                valor_excel = float(venda.get('valor', 0))
+            except:
+                valor_excel = 0.0
+
+            # Nome do produto seguro
+            produtos = venda.get('produtos', [])
+            nome_produto = 'N/A'
+            if isinstance(produtos, list) and len(produtos) > 0:
+                 nome_produto = produtos[0].get('name', 'N/A')
 
             vendas_detalhadas_para_export.append({
-                'aluno': venda.get('cliente_nome', 'N/A'),
+                'aluno': aluno_nome, # Já validado acima
                 'escola': venda.get('cliente_escola', 'N/A'),
-                'produto': (
-                    venda.get('produtos')[0].get('name')
-                    if isinstance(venda.get('produtos'), list) and len(venda.get('produtos')) > 0
-                    else 'N/A'
-                ),
-
+                'produto': nome_produto,
                 'valor': valor_excel,
                 'data_compra': data_compra_excel 
             })
         
         if not vendas_detalhadas_para_export:
-            return jsonify({"message": "Nenhum dado para exportar para esta escola."}), 404
+            # Retorna um erro amigável se não houver vendas aprovadas para exportar
+            return jsonify({"error": "Não há vendas aprovadas para exportar nesta escola."}), 404
 
+        # --- GERAÇÃO DO ARQUIVO EXCEL ---
         wb = Workbook()
         ws = wb.active 
         ws.title = f"Vendas_{nome_escola}"[:31] 
@@ -1000,6 +1044,7 @@ def exportar_alunos_xlsx(nome_escola_url):
                 row_data['data_compra']
             ])
         
+        # Formatação das células (Largura automática e formato de moeda/data)
         for col in ws.columns:
             max_length = 0
             column = col[0].column_letter 
@@ -1008,16 +1053,15 @@ def exportar_alunos_xlsx(nome_escola_url):
                     if cell.value is not None:
                         cell_value_str = str(cell.value)
                         
-                        if column == 'D': # Coluna Valor (formato de moeda)
+                        if column == 'D': # Coluna Valor 
                            cell.number_format = '"R$"#,##0.00' 
-                        elif column == 'E' and isinstance(cell.value, datetime.datetime): # Coluna Data Compra (formato de data/hora)
+                        elif column == 'E' and isinstance(cell.value, datetime.datetime): # Coluna Data
                            cell.number_format = 'DD/MM/YYYY HH:MM:SS' 
-                           cell_value_str = cell.value.strftime('%Y-%m-%d %H:%M:%S') # Para cálculo de largura
+                           cell_value_str = cell.value.strftime('%Y-%m-%d %H:%M:%S') 
                         
                         if len(cell_value_str) > max_length:
                             max_length = len(cell_value_str)
-                except Exception as cell_err:
-                    print(f"Erro ao processar célula para largura automática: {cell.value} - {cell_err}")
+                except Exception:
                     pass
             adjusted_width = (max_length + 2) 
             ws.column_dimensions[column].width = min(adjusted_width, 70) 
@@ -1030,7 +1074,7 @@ def exportar_alunos_xlsx(nome_escola_url):
 
         filename = f"relatorio_alunos_{nome_escola.replace(' ', '_')}_{datetime.date.today().strftime('%Y%m%d')}.xlsx"
         
-        print(f"Exportação XLSX para '{nome_escola}' concluída e pronta para download.")
+        print(f"Exportação XLSX para '{nome_escola}' concluída com sucesso.")
         return send_file(output,
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                          download_name=filename, 
