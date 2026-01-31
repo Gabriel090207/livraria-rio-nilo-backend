@@ -229,29 +229,42 @@ CIELO_API_QUERY_URL = os.getenv("CIELO_API_QUERY_URL_PROD", "https://apiquery.ci
 import firebase_admin
 from firebase_admin import credentials, firestore
 import json
+import os
 
 try:
     if not firebase_admin._apps:
-        # Tenta pegar a configuração da variável de ambiente (Render)
-        firebase_info = os.getenv('FIREBASE_CONFIG')
+        env_config = os.getenv('FIREBASE_CONFIG')
         
-        if firebase_info:
-            # Se estiver no Render, usamos a string JSON da variável de ambiente
-            cred_dict = json.loads(firebase_info)
-            # CORREÇÃO CRUCIAL: Trata as quebras de linha da chave privada
-            cred_dict['private_key'] = cred_dict['private_key'].replace('\\n', '\n')
-            cred = credentials.Certificate(cred_dict)
-        else:
-            # Se estiver local, usa o arquivo (opcional, melhor usar env local também)
-            cred = credentials.Certificate('chave-firebase.json')
+        if env_config:
+            print(">>> [DEBUG] Tentando inicializar via Variável de Ambiente...")
+            # Remove possíveis aspas extras que o Render às vezes coloca
+            env_config = env_config.strip()
+            if env_config.startswith("'") or env_config.startswith('"'):
+                env_config = env_config[1:-1]
             
-        firebase_admin.initialize_app(cred)
-    
+            creds_dict = json.loads(env_config)
+            
+            # Limpeza profunda da private_key
+            if 'private_key' in creds_dict:
+                # Substitui o literal \n por quebras de linha reais e remove espaços
+                creds_dict['private_key'] = creds_dict['private_key'].replace('\\n', '\n').strip()
+            
+            cred = credentials.Certificate(creds_dict)
+            firebase_admin.initialize_app(cred)
+            print(">>> [SUCESSO] Firebase inicializado via ENV!")
+        else:
+            print(">>> [AVISO] Variável FIREBASE_CONFIG não detectada. Procurando arquivo...")
+            # Só usa o arquivo se a variável de ambiente falhar
+            if os.path.exists('chave-firebase.json'):
+                cred = credentials.Certificate('chave-firebase.json')
+                firebase_admin.initialize_app(cred)
+                print(">>> [SUCESSO] Firebase inicializado via ARQUIVO LOCAL!")
+            else:
+                raise Exception("Nenhuma credencial encontrada (ENV ou Arquivo)!")
+
     db = firestore.client()
-    print("Firebase inicializado com sucesso!")
 except Exception as e:
-    print(f"Erro CRÍTICO ao inicializar Firebase: {e}")
-    # Opcional: sys.exit(1) se o banco for vital para o app rodar
+    print(f">>> [ERRO CRÍTICO] Falha total no Firebase: {e}")
 
 @app.route('/')
 def home():
