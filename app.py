@@ -227,18 +227,31 @@ CIELO_API_QUERY_URL = os.getenv("CIELO_API_QUERY_URL_PROD", "https://apiquery.ci
 
 # --- Importações e Inicialização do Firebase ---
 import firebase_admin
-from firebase_admin import credentials
-from firebase_admin import firestore
+from firebase_admin import credentials, firestore
+import json
 
 try:
     if not firebase_admin._apps:
-        cred = credentials.Certificate('chave-firebase.json')  # Garanta que este caminho está correto
+        # Tenta pegar a configuração da variável de ambiente (Render)
+        firebase_info = os.getenv('FIREBASE_CONFIG')
+        
+        if firebase_info:
+            # Se estiver no Render, usamos a string JSON da variável de ambiente
+            cred_dict = json.loads(firebase_info)
+            # CORREÇÃO CRUCIAL: Trata as quebras de linha da chave privada
+            cred_dict['private_key'] = cred_dict['private_key'].replace('\\n', '\n')
+            cred = credentials.Certificate(cred_dict)
+        else:
+            # Se estiver local, usa o arquivo (opcional, melhor usar env local também)
+            cred = credentials.Certificate('chave-firebase.json')
+            
         firebase_admin.initialize_app(cred)
+    
     db = firestore.client()
     print("Firebase inicializado com sucesso!")
 except Exception as e:
-    print(f"Erro ao inicializar Firebase: {e}")
-
+    print(f"Erro CRÍTICO ao inicializar Firebase: {e}")
+    # Opcional: sys.exit(1) se o banco for vital para o app rodar
 
 @app.route('/')
 def home():
