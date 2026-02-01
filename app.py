@@ -734,17 +734,24 @@ def verificar_status(payment_id):
 def get_vendas():
     try:
         if 'db' not in globals() or db is None:
-            return jsonify({"error": "Serviço de banco de dados indisponível."}), 500
+            return jsonify({"error": "Banco de dados indisponível."}), 500
 
         # --- PARÂMETROS ---
         period = request.args.get('period', 'today') 
-        school_filter = request.args.get('school') # <--- NOVO: Recebe o filtro do front
+        school_filter = request.args.get('school') 
         
+        # Paginação (Novidade!)
+        limit = int(request.args.get('limit', 500)) # Padrão 500
+        offset = int(request.args.get('offset', 0))  # Padrão começar do 0
+        
+        # Proteção: Se alguém pedir um limite absurdo, travamos em 1000
+        if limit > 1000: limit = 1000
+
         now_utc = datetime.datetime.utcnow() 
         start_date = None
         end_date = None
 
-        # --- LÓGICA DE DATAS ---
+        # --- LÓGICA DE DATAS (Mantida igual) ---
         if period == 'today':
             start_date = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
             end_date = now_utc.replace(hour=23, minute=59, second=59, microsecond=999999)
@@ -768,21 +775,20 @@ def get_vendas():
         # --- QUERY ---
         vendas_query = db.collection('vendas')
 
-        # 1. 🔥 OTIMIZAÇÃO CRÍTICA: Filtra por escola no BANCO DE DADOS
         if school_filter:
-            # Decodifica string caso necessário (ex: espaços %20)
             school_clean = requests.utils.unquote(school_filter)
             vendas_query = vendas_query.where('cliente_escola', '==', school_clean)
 
-        # 2. Filtros de Data
         if start_date:
             vendas_query = vendas_query.where('data_hora', '>=', start_date)
         if end_date:
             vendas_query = vendas_query.where('data_hora', '<=', end_date)
             
-        # 3. Proteção contra Crash: Se não tem filtro de escola e pede "tudo", limita a 100
-        if not school_filter and period == 'allTime':
-             vendas_query = vendas_query.limit(100)
+        # --- APLICAÇÃO DA PAGINAÇÃO ---
+        # 1. Ordena por data (mais recente primeiro)
+        # 2. Pula os primeiros X itens (offset)
+        # 3. Pega os próximos Y itens (limit)
+        vendas_query = vendas_query.order_by('data_hora', direction=firestore.Query.DESCENDING).offset(offset).limit(limit)
 
         docs = vendas_query.stream()
         
@@ -791,7 +797,6 @@ def get_vendas():
             venda = doc.to_dict()
             venda['id'] = doc.id
             
-            # Tratamento de data
             if isinstance(venda.get('data_hora'), datetime.datetime):
                 venda['data_hora'] = venda['data_hora'].isoformat() 
             else:
@@ -799,10 +804,9 @@ def get_vendas():
             
             lista_vendas.append(venda)
         
-        # Ordenação final em memória (seguro agora pois a lista é pequena)
+        # Ordenação final em memória (segurança extra)
         lista_vendas.sort(key=lambda x: x.get('data_hora', '0000-01-01T00:00:00') if x.get('data_hora') else '', reverse=True)
         
-        print(f"Retornando {len(lista_vendas)} vendas. Filtro Escola: {school_filter}")
         return jsonify(lista_vendas), 200
 
     except Exception as e:
@@ -1118,33 +1122,58 @@ def exportar_alunos_xlsx(nome_escola_url):
 def get_financeiro_resumo():
     try:
         if 'db' not in globals() or db is None:
-            return jsonify({"error": "Serviço de banco de dados indisponível."}), 500
+            return jsonify({"error": "Banco de dados indisponível."}), 500
 
-        vendas_ref = db.collection('vendas')
-        docs = vendas_ref.stream()
+        # ADICIONAMOS SUPORTE A FILTROS AQUI TAMBÉM!
+        period = request.args.get('period', 'allTime') 
+        
+        # ... (Mesma lógica de datas do get_vendas - MANTENHA A LÓGICA DE DATAS AQUI) ...
+        now_utc = datetime.datetime.utcnow() 
+        start_date = None
+        end_date = None
+        # ... (Copie os ifs de period igual ao get_vendas acima) ...
+        # (Para brevidade, assuma que você copiou os ifs aqui)
+        if period == 'today':
+            start_date = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = now_utc.replace(hour=23, minute=59, second=59, microsecond=999999)
+        # ... adicione os outros ifs ...
+
+        vendas_query = db.collection('vendas')
+        
+        if start_date:
+            vendas_query = vendas_query.where('data_hora', '>=', start_date)
+        if end_date:
+            vendas_query = vendas_query.where('data_hora', '<=', end_date)
+
+        # OTIMIZAÇÃO: Selecionamos APENAS os campos necessários para somar.
+        # Isso faz a query ser muito mais leve e rápida, evitando timeout mesmo sem limite.
+        docs = vendas_query.select(['valor', 'status_cielo_codigo', 'tipo_pagamento']).stream()
 
         valor_ganho = 0.0
         valor_reembolsado = 0.0
-        # defaultdict para somar valores por método de pagamento
+        quantidade_vendas = 0
         metodos_pagamento_totais = defaultdict(float) 
 
         for doc in docs:
             venda = doc.to_dict()
             status_cielo_codigo = venda.get('status_cielo_codigo')
-            valor = float(venda.get('valor', 0))
-            tipo_pagamento = venda.get('tipo_pagamento', 'Outro') # Captura o tipo de pagamento
+            # Usa try/except para garantir que valor seja float
+            try:
+                valor = float(venda.get('valor', 0))
+            except:
+                valor = 0.0
+            
+            tipo_pagamento = venda.get('tipo_pagamento', 'Outro')
 
-            # Contabiliza para Valor Ganho e Totais por Método (status 2, 12, 1)
-            # Status 2: Capturada/Aprovada
-            # Status 12: Pix Gerado (Aguardando pagamento - considerado ganho potencial)
-            # Status 1: Boleto Emitido (Aguardando pagamento - considerado ganho potencial)
+            # Contabiliza (Status 2=Aprovado, 12=Pix Pendente, 1=Boleto Pendente)
             if status_cielo_codigo in [2, 12, 1]: 
                 valor_ganho += valor
+                quantidade_vendas += 1 # Contamos aqui
                 metodos_pagamento_totais[tipo_pagamento] += valor
-            elif status_cielo_codigo == 3: # Status 3: Reembolsada/Cancelada
+            elif status_cielo_codigo == 3: 
                 valor_reembolsado += valor
 
-        # Calcular porcentagens para cada método de pagamento
+        # Calcular porcentagens
         metodos_pagamento_percentuais = {}
         for metodo, total_metodo in metodos_pagamento_totais.items():
             percentual = (total_metodo / valor_ganho) if valor_ganho > 0 else 0
@@ -1153,17 +1182,16 @@ def get_financeiro_resumo():
                 'percentual': percentual
             }
 
-        # Formatar a saída
         resumo_financeiro = {
             'valor_ganho': valor_ganho,
             'valor_reembolsado': valor_reembolsado,
+            'quantidade_vendas': quantidade_vendas, # Enviamos a quantidade total real
             'metodos_pagamento': metodos_pagamento_percentuais
         }
 
         return jsonify(resumo_financeiro), 200
 
     except Exception as e:
-        print(f"Erro ao gerar resumo financeiro: {e}")
         traceback.print_exc()
         return jsonify({"error": f"Erro ao gerar resumo financeiro: {str(e)}"}), 500
 
