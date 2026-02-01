@@ -179,7 +179,7 @@ O pagamento do seu pedido nº *{numero_pedido}* foi *aprovado*. ✅
 
 🚨 *ATENÇÃO IMPORTANTE:*
 
-O produto será entregue *dentro de 48 horas diretamente na escola*.
+O produto será enviado para a *escola*.
 
 Para receber o kit do seu filho, *encaminhe esta mensagem para o WhatsApp da escola* ou apresente esta mensagem pessoalmente.
 
