@@ -821,42 +821,43 @@ def get_receita_por_produto():
         if 'db' not in globals() or db is None:
             return jsonify({"error": "Serviço de banco de dados indisponível."}), 500
 
-        vendas_ref = db.collection('vendas')
-        docs = vendas_ref.stream()
+        # Adicionamos um limite de segurança de 1000 vendas para o relatório
+        # e usamos o .select() para pegar apenas os campos de produto
+        vendas_ref = db.collection('vendas').order_by('data_hora', direction=firestore.Query.DESCENDING).limit(1000)
+        docs = vendas_ref.select(['produtos', 'valor', 'status_cielo_codigo']).stream()
 
         produtos_data = defaultdict(lambda: {'quantidade': 0, 'receita': 0.0})
 
         for doc in docs:
             venda = doc.to_dict()
-            # Considera vendas aprovadas, Pix gerado ou Boleto emitido
+            # Status 2=Aprovado, 12=Pix, 1=Boleto
             if venda.get('status_cielo_codigo') in [2, 12, 1]: 
                 produtos = venda.get('produtos', [])
+                if not isinstance(produtos, list): continue
 
-                if not isinstance(produtos, list) or len(produtos) == 0:
-                    continue
+                for p in produtos:
+                    nome = p.get('name', 'Produto Desconhecido')
+                    # Tenta pegar o preço do produto ou o valor total da venda se for um só
+                    try:
+                        valor = float(p.get('price', venda.get('valor', 0)))
+                    except:
+                        valor = 0.0
 
-                produto_nome = produtos[0].get('name', 'Produto Desconhecido')
-                valor = float(venda.get('valor', 0))
+                    produtos_data[nome]['quantidade'] += 1
+                    produtos_data[nome]['receita'] += valor
 
-                produtos_data[produto_nome]['quantidade'] += 1
-                produtos_data[produto_nome]['receita'] += valor
-
-
-        lista_produtos = []
-        for nome, dados in produtos_data.items():
-            lista_produtos.append({
-                'nome': nome,
-                'quantidade_vendida': dados['quantidade'],
-                'receita_gerada': dados['receita']
-            })
+        lista_produtos = [{
+            'nome': nome,
+            'quantidade_vendida': dados['quantidade'],
+            'receita_gerada': dados['receita']
+        } for nome, dados in produtos_data.items()]
         
         lista_produtos.sort(key=lambda x: x['receita_gerada'], reverse=True)
-
         return jsonify(lista_produtos), 200
 
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"error": f"Erro ao gerar relatório: {str(e)}"}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/relatorios/escolas', methods=['GET'])
 def get_relatorio_escolas():
@@ -864,56 +865,49 @@ def get_relatorio_escolas():
         if 'db' not in globals() or db is None:
             return jsonify({"error": "Serviço de banco de dados indisponível."}), 500
 
-        vendas_ref = db.collection('vendas')
-        docs = vendas_ref.stream()
+        # Limite de 1000 e seleção apenas dos campos necessários
+        vendas_ref = db.collection('vendas').order_by('data_hora', direction=firestore.Query.DESCENDING).limit(1000)
+        docs = vendas_ref.select(['cliente_escola', 'valor', 'status_cielo_codigo', 'produtos', 'cliente_email']).stream()
 
         escolas_resumo = defaultdict(lambda: {
             'total_vendas': 0,
             'receita_total': 0.0,
             'produtos_vendidos': defaultdict(int), 
-            'alunos_compraram_ids': set() 
+            'alunos': set() 
         })
         
         for doc in docs:
             venda = doc.to_dict()
-            escola_nome = venda.get('cliente_escola', 'Escola Desconhecida')
-            cliente_email = venda.get('cliente_email', 'Aluno Desconhecido') 
-            produto_nome = (
-                venda.get('produtos')[0].get('name')
-                if isinstance(venda.get('produtos'), list) and len(venda.get('produtos')) > 0
-                else 'Produto Desconhecido'
-            )
+            if venda.get('status_cielo_codigo') == 2: # Apenas aprovadas
+                escola = venda.get('cliente_escola', 'Escola Desconhecida')
+                valor = float(venda.get('valor', 0))
+                
+                escolas_resumo[escola]['total_vendas'] += 1
+                escolas_resumo[escola]['receita_total'] += valor
+                escolas_resumo[escola]['alunos'].add(venda.get('cliente_email'))
+                
+                # Pega o primeiro produto para o "mais vendido"
+                prods = venda.get('produtos', [])
+                if prods:
+                    escolas_resumo[escola]['produtos_vendidos'][prods[0].get('name')] += 1
 
-            valor = float(venda.get('valor', 0))
-
-            if venda.get('status_cielo_codigo') == 2:  # SOMENTE APROVADAS
-                escolas_resumo[escola_nome]['total_vendas'] += 1
-                escolas_resumo[escola_nome]['receita_total'] += valor
-                escolas_resumo[escola_nome]['produtos_vendidos'][produto_nome] += 1
-                escolas_resumo[escola_nome]['alunos_compraram_ids'].add(cliente_email)
-
-
-        resumo_escolas_lista = []
-        for nome_escola, dados_escola in escolas_resumo.items():
-            mais_vendido = None
-            if dados_escola['produtos_vendidos']:
-                mais_vendido = max(dados_escola['produtos_vendidos'], key=dados_escola['produtos_vendidos'].get)
-
-            resumo_escolas_lista.append({
-                'nome_escola': nome_escola,
-                'total_vendas': dados_escola['total_vendas'],
-                'receita_total': dados_escola['receita_total'],
+        resumo = []
+        for nome, d in escolas_resumo.items():
+            mais_vendido = max(d['produtos_vendidos'], key=d['produtos_vendidos'].get) if d['produtos_vendidos'] else 'N/A'
+            resumo.append({
+                'nome_escola': nome,
+                'total_vendas': d['total_vendas'],
+                'receita_total': d['receita_total'],
                 'produto_mais_vendido': mais_vendido,
-                'quantidade_alunos_compraram': len(dados_escola['alunos_compraram_ids']) 
+                'quantidade_alunos_compraram': len(d['alunos'])
             })
         
-        resumo_escolas_lista.sort(key=lambda x: x['receita_total'], reverse=True)
-
-        return jsonify(resumo_escolas_lista), 200
+        resumo.sort(key=lambda x: x['receita_total'], reverse=True)
+        return jsonify(resumo), 200
 
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"error": f"Erro ao gerar relatório: {str(e)}"}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/relatorios/escola/<string:nome_escola_url>', methods=['GET'])
 def get_vendas_por_escola(nome_escola_url):
