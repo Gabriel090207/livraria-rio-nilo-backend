@@ -670,7 +670,56 @@ def processar_boleto():
     except Exception as e:
         traceback.print_exc()
         return jsonify({"status": "error", "message": f"Erro interno no backend. Detalhes: {str(e)}"}), 500
+    
 
+# --- ROTA PARA REGISTRAR A VENDA APÓS SUCESSO NO FRONTEND ---
+@app.route('/registrar-venda', methods=['POST'])
+def registrar_venda():
+    try:
+        data = request.get_json()
+        
+        # Extrai os dados enviados pelo JavaScript
+        order_id = data.get('orderId')
+        items = data.get('items')
+        total = data.get('total')
+        billing_data = data.get('billingData')
+        metodo = data.get('metodo')
+
+        # Monta o documento para o Firebase com os campos corretos
+        venda_data = {
+            "payment_id": order_id,
+            "merchant_order_id": order_id,
+            "data_hora": datetime.datetime.utcnow(),
+            "produtos": items,
+            "cliente_nome": f"{billing_data.get('firstName')} {billing_data.get('lastName')}",
+            "nome_crianca": billing_data.get('fullNameChild'),
+            "cliente_cpf": billing_data.get('cpf'),
+            "cliente_email": billing_data.get('email'),
+            "cliente_escola": billing_data.get('school'),
+            "cliente_telefone": billing_data.get('phone'),
+            "valor": float(total),
+            "status_cielo_codigo": 2, # Sucesso
+            "status_cielo_mensagem": "Aprovado via Registro Direto",
+            "tipo_pagamento": metodo,
+            "recuperada": False
+        }
+
+        # Salva na coleção 'vendas' usando o ID da transação como nome do documento
+        # Isso evita que o mesmo clique salve a venda duas vezes
+        db.collection('vendas').document(str(order_id)).set(venda_data)
+
+        # Opcional: Disparar notificação push ao salvar
+        enviar_notificacao(
+            "Nova Venda Confirmada!",
+            f"Venda de R$ {total} para {billing_data.get('firstName')} registrada com sucesso."
+        )
+
+        return jsonify({"status": "success", "message": "Venda gravada no banco!"}), 200
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+    
 
 @app.route('/verificar-status/<payment_id>', methods=['GET'])
 def verificar_status(payment_id):
