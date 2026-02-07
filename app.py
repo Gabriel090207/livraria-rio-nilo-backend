@@ -1007,16 +1007,14 @@ def get_vendas_por_escola(nome_escola_url):
             else:
                 data_compra_iso = 'N/A'
 
-            
-
 
             vendas_detalhadas.append({
-                'aluno': aluno_nome,
-                'escola': venda.get('cliente_escola', 'N/A'),
-                'produto': produto_nome,
-                'valor': float(venda.get('valor', 0)),
-                'data_compra': data_compra_iso
-            })
+            'aluno': venda.get('nome_crianca', 'N/A'),
+            'escola': venda.get('cliente_escola', 'N/A'),
+            'produto': produto_nome,
+            'valor': float(venda.get('valor', 0)),
+            'data_compra': data_compra_iso
+        })
 
         
         return jsonify(vendas_detalhadas), 200
@@ -1044,24 +1042,25 @@ def exportar_alunos_xlsx(nome_escola_url):
         for doc in vendas_query:
             venda = doc.to_dict()
             
-            # --- CORREÇÃO 1: FILTRO DE STATUS ---
-            # Só aceita vendas APROVADAS (Código 2 na Cielo)
+            # --- CORREÇÃO 1: FILTRO DE STATUS (Mantém igual) ---
             if venda.get('status_cielo_codigo') != 2:
                 continue
 
-            # --- CORREÇÃO 2: REMOÇÃO DE DUPLICIDADE ---
-            # Garante que não apareça o mesmo aluno duas vezes (mesma lógica da tela visual)
-            aluno_nome = venda.get('cliente_nome')
-            if not aluno_nome:
-                continue
+            # --- CORREÇÃO 2: PEGAR NOME DA CRIANÇA (MUDANÇA AQUI) ---
+            # Tentamos pegar o nome da criança. 
+            # Se por algum motivo estiver vazio (venda antiga), usamos o nome do cliente como reserva.
+            nome_exibicao = venda.get('nome_crianca')
+            if not nome_exibicao or nome_exibicao.strip() == "":
+                nome_exibicao = venda.get('cliente_nome', 'N/A')
 
-            chave_aluno = aluno_nome.strip().lower()
+            # --- CORREÇÃO 3: REMOÇÃO DE DUPLICIDADE (Baseada no nome da criança) ---
+            chave_aluno = nome_exibicao.strip().lower()
             if chave_aluno in alunos_map:
-                continue # Pula se o aluno já foi processado nesta lista
+                continue 
             
             alunos_map.add(chave_aluno)
 
-            # --- PREPARAÇÃO DOS DADOS ---
+            # --- PREPARAÇÃO DOS DADOS (Mantém igual) ---
             data_compra_excel = venda.get('data_hora') 
             
             if isinstance(data_compra_excel, datetime.datetime):
@@ -1070,20 +1069,19 @@ def exportar_alunos_xlsx(nome_escola_url):
             else:
                 data_compra_excel = str(data_compra_excel) 
 
-            # Uso de float seguro ou 0
             try:
                 valor_excel = float(venda.get('valor', 0))
             except:
                 valor_excel = 0.0
 
-            # Nome do produto seguro
             produtos = venda.get('produtos', [])
             nome_produto = 'N/A'
             if isinstance(produtos, list) and len(produtos) > 0:
                  nome_produto = produtos[0].get('name', 'N/A')
 
+            # --- ADICIONA À LISTA COM O NOME DA CRIANÇA ---
             vendas_detalhadas_para_export.append({
-                'aluno': aluno_nome, # Já validado acima
+                'aluno': nome_exibicao, # <--- AQUI AGORA VAI O NOME DA CRIANÇA
                 'escola': venda.get('cliente_escola', 'N/A'),
                 'produto': nome_produto,
                 'valor': valor_excel,
