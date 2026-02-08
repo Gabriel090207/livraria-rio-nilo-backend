@@ -976,45 +976,32 @@ def get_vendas_por_escola(nome_escola_url):
         for doc in vendas_query:
             venda = doc.to_dict()
 
-            # ✅ MOSTRAR SOMENTE VENDAS APROVADAS
             if venda.get('status_cielo_codigo') != 2:
                 continue
 
-
-            aluno_nome = venda.get('cliente_nome')
-            if not aluno_nome:
-                continue
-
-            chave_aluno = aluno_nome.strip().lower()
-
-    # 👉 Se já existe, ignora
-            if chave_aluno in alunos_map:
-                continue
-
-            alunos_map.add(chave_aluno)
-
-
-            # 🟢 PRODUTO (SEGURO)
-            produto_nome = 'N/A'
+            # --- LÓGICA SÊNIOR PARA SOMAR QUANTIDADE ---
             produtos = venda.get('produtos', [])
+            total_qtd = 0
+            nomes_lista = []
 
-            if isinstance(produtos, list) and len(produtos) > 0:
-                produto_nome = produtos[0].get('name', 'N/A')
-
-            data_compra_iso = None
-            if isinstance(venda.get('data_hora'), datetime.datetime):
-                data_compra_iso = venda['data_hora'].isoformat()
-            else:
-                data_compra_iso = 'N/A'
-
+            if isinstance(produtos, list):
+                for p in produtos:
+                    # Pega a quantidade (se não existir, assume 1)
+                    q = p.get('quantity', 1)
+                    total_qtd += q
+                    nomes_lista.append(p.get('name', 'N/A'))
+            
+            # Junta os nomes dos livros (ex: Livro A, Livro B)
+            produto_exibicao = ", ".join(list(set(nomes_lista)))
 
             vendas_detalhadas.append({
-            'aluno': venda.get('nome_crianca', 'N/A'),
-            'escola': venda.get('cliente_escola', 'N/A'),
-            'produto': produto_nome,
-            'valor': float(venda.get('valor', 0)),
-            'data_compra': data_compra_iso
-        })
+                'aluno': venda.get('nome_crianca') or venda.get('cliente_nome', 'N/A'),
+                'escola': venda.get('cliente_escola', 'N/A'),
+                'produto': produto_exibicao,
+                'quantidade': total_qtd, # <--- ISSO ENVIA O NÚMERO "2" PARA O JS
+                'valor': float(venda.get('valor', 0)),
+                'data_compra': venda.get('data_hora').isoformat() if isinstance(venda.get('data_hora'), datetime.datetime) else 'N/A'
+            })
 
         
         return jsonify(vendas_detalhadas), 200
@@ -1041,51 +1028,24 @@ def exportar_alunos_xlsx(nome_escola_url):
 
         for doc in vendas_query:
             venda = doc.to_dict()
-            
-            # --- CORREÇÃO 1: FILTRO DE STATUS (Mantém igual) ---
             if venda.get('status_cielo_codigo') != 2:
                 continue
 
-            # --- CORREÇÃO 2: PEGAR NOME DA CRIANÇA (MUDANÇA AQUI) ---
-            # Tentamos pegar o nome da criança. 
-            # Se por algum motivo estiver vazio (venda antiga), usamos o nome do cliente como reserva.
-            nome_exibicao = venda.get('nome_crianca')
-            if not nome_exibicao or nome_exibicao.strip() == "":
-                nome_exibicao = venda.get('cliente_nome', 'N/A')
-
-            # --- CORREÇÃO 3: REMOÇÃO DE DUPLICIDADE (Baseada no nome da criança) ---
-            chave_aluno = nome_exibicao.strip().lower()
-            if chave_aluno in alunos_map:
-                continue 
-            
-            alunos_map.add(chave_aluno)
-
-            # --- PREPARAÇÃO DOS DADOS (Mantém igual) ---
-            data_compra_excel = venda.get('data_hora') 
-            
-            if isinstance(data_compra_excel, datetime.datetime):
-                if data_compra_excel.tzinfo is not None and data_compra_excel.tzinfo.utcoffset(data_compra_excel) is not None:
-                    data_compra_excel = data_compra_excel.astimezone(datetime.timezone.utc).replace(tzinfo=None)
-            else:
-                data_compra_excel = str(data_compra_excel) 
-
-            try:
-                valor_excel = float(venda.get('valor', 0))
-            except:
-                valor_excel = 0.0
-
+            # Cálculo da quantidade e nome dos produtos
             produtos = venda.get('produtos', [])
-            nome_produto = 'N/A'
-            if isinstance(produtos, list) and len(produtos) > 0:
-                 nome_produto = produtos[0].get('name', 'N/A')
+            total_qtd = sum([p.get('quantity', 1) for p in produtos]) if isinstance(produtos, list) else 1
+            nome_produto = ", ".join(list(set([p.get('name', 'N/A') for p in produtos])))
 
-            # --- ADICIONA À LISTA COM O NOME DA CRIANÇA ---
+            # Pega o nome da criança (ou cliente como fallback)
+            nome_exibicao = venda.get('nome_crianca') or venda.get('cliente_nome', 'N/A')
+
             vendas_detalhadas_para_export.append({
-                'aluno': nome_exibicao, # <--- AQUI AGORA VAI O NOME DA CRIANÇA
+                'aluno': nome_exibicao,
                 'escola': venda.get('cliente_escola', 'N/A'),
                 'produto': nome_produto,
-                'valor': valor_excel,
-                'data_compra': data_compra_excel 
+                'quantidade': total_qtd, # <--- GUARDA A SOMA
+                'valor': float(venda.get('valor', 0)),
+                'data_hora': venda.get('data_hora') 
             })
         
         if not vendas_detalhadas_para_export:
@@ -1111,6 +1071,7 @@ def exportar_alunos_xlsx(nome_escola_url):
                 row_data['aluno'],
                 row_data['escola'],
                 row_data['produto'],
+                row_data['quantidade'],
                 row_data['valor'], 
                 row_data['data_compra']
             ])
