@@ -975,30 +975,31 @@ def get_vendas_por_escola(nome_escola_url):
 
         for doc in vendas_query:
             venda = doc.to_dict()
+            if venda.get('status_cielo_codigo') != 2: continue
 
-            if venda.get('status_cielo_codigo') != 2:
-                continue
-
-            # --- LÓGICA SÊNIOR PARA SOMAR QUANTIDADE ---
             produtos = venda.get('produtos', [])
             total_qtd = 0
-            nomes_lista = []
+            
+            # --- NOVA LÓGICA DE AGRUPAMENTO COM QUANTIDADE ---
+            contagem_produtos = {} # Dicionário para somar (Ex: {"Livro A": 2, "Livro B": 1})
 
             if isinstance(produtos, list):
                 for p in produtos:
-                    # Pega a quantidade (se não existir, assume 1)
-                    q = p.get('quantity', 1)
-                    total_qtd += q
-                    nomes_lista.append(p.get('name', 'N/A'))
+                    nome = p.get('name', 'N/A')
+                    qtd = p.get('quantity', 1)
+                    total_qtd += qtd
+                    # Soma a quantidade por nome de produto
+                    contagem_produtos[nome] = contagem_produtos.get(nome, 0) + qtd
             
-            # Junta os nomes dos livros (ex: Livro A, Livro B)
-            produto_exibicao = ", ".join(list(set(nomes_lista)))
+            # Monta a string final: "2x Livro 2 anos, 1x Livro 3 anos"
+            lista_formatada = [f"{qtd}x {nome}" for nome, qtd in contagem_produtos.items()]
+            produto_exibicao = ", ".join(lista_formatada)
 
             vendas_detalhadas.append({
                 'aluno': venda.get('nome_crianca') or venda.get('cliente_nome', 'N/A'),
                 'escola': venda.get('cliente_escola', 'N/A'),
-                'produto': produto_exibicao,
-                'quantidade': total_qtd, # <--- ISSO ENVIA O NÚMERO "2" PARA O JS
+                'produto': produto_exibicao, # <--- AGORA VAI COM "2x ..."
+                'quantidade': total_qtd,
                 'valor': float(venda.get('valor', 0)),
                 'data_compra': venda.get('data_hora').isoformat() if isinstance(venda.get('data_hora'), datetime.datetime) else 'N/A'
             })
@@ -1028,22 +1029,27 @@ def exportar_alunos_xlsx(nome_escola_url):
 
         for doc in vendas_query:
             venda = doc.to_dict()
-            if venda.get('status_cielo_codigo') != 2:
-                continue
+            if venda.get('status_cielo_codigo') != 2: continue
 
-            # Cálculo da quantidade e nome dos produtos
             produtos = venda.get('produtos', [])
-            total_qtd = sum([p.get('quantity', 1) for p in produtos]) if isinstance(produtos, list) else 1
-            nome_produto = ", ".join(list(set([p.get('name', 'N/A') for p in produtos])))
+            total_qtd = 0
+            contagem_produtos = {}
 
-            # Pega o nome da criança (ou cliente como fallback)
-            nome_exibicao = venda.get('nome_crianca') or venda.get('cliente_nome', 'N/A')
+            if isinstance(produtos, list):
+                for p in produtos:
+                    nome = p.get('name', 'N/A')
+                    qtd = p.get('quantity', 1)
+                    total_qtd += qtd
+                    contagem_produtos[nome] = contagem_produtos.get(nome, 0) + qtd
+
+            # Formata para o Excel: "2x Produto A, 1x Produto B"
+            nome_produto_excel = ", ".join([f"{qtd}x {nome}" for nome, qtd in contagem_produtos.items()])
 
             vendas_detalhadas_para_export.append({
-                'aluno': nome_exibicao,
+                'aluno': venda.get('nome_crianca') or venda.get('cliente_nome', 'N/A'),
                 'escola': venda.get('cliente_escola', 'N/A'),
-                'produto': nome_produto,
-                'quantidade': total_qtd, # <--- GUARDA A SOMA
+                'produto': nome_produto_excel,
+                'quantidade': total_qtd,
                 'valor': float(venda.get('valor', 0)),
                 'data_hora': venda.get('data_hora') 
             })
