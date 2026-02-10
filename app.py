@@ -1051,7 +1051,7 @@ def exportar_alunos_xlsx(nome_escola_url):
                 'produto': nome_produto_excel,
                 'quantidade': total_qtd,
                 'valor': float(venda.get('valor', 0)),
-                'data_hora': venda.get('data_hora') 
+                'data_compra': venda.get('data_compra') 
             })
         
         if not vendas_detalhadas_para_export:
