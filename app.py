@@ -971,14 +971,27 @@ def get_vendas_por_escola(nome_escola_url):
                          .order_by('data_hora', direction=firestore.Query.DESCENDING).stream()
         
         vendas_detalhadas = []
-        alunos_map = set()
+        ids_processados = set() # Para evitar duplicatas, caso haja algum problema de dados
 
         for doc in vendas_query:
             venda = doc.to_dict()
-            if venda.get('status_cielo_codigo') != 2: continue
+            p_id = venda.get('payment_id')
+
+            try:
+                status_atual = int(venda.get('status_cielo_codigo', 0))
+            except:
+                status_atual = 0
+
+            if status_atual != 2:
+                continue
+
+            if p_id in ids_processados:
+                continue
+            ids_processados.add(p_id)
 
             produtos = venda.get('produtos', [])
             total_qtd = 0
+            contagem_produtos = {}
             
             # --- NOVA LÓGICA DE AGRUPAMENTO COM QUANTIDADE ---
             contagem_produtos = {} # Dicionário para somar (Ex: {"Livro A": 2, "Livro B": 1})
@@ -1025,11 +1038,23 @@ def exportar_alunos_xlsx(nome_escola_url):
                          .order_by('data_hora', direction=firestore.Query.DESCENDING).stream()
         
         vendas_detalhadas_para_export = []
-        alunos_map = set() # Controle de duplicidade
+        ids_processados = set()
 
         for doc in vendas_query:
             venda = doc.to_dict()
-            if venda.get('status_cielo_codigo') != 2: continue
+            p_id = venda.get('payment_id')
+
+            try:
+                status_atual = int(venda.get('status_cielo_codigo', 0))
+            except:
+                status_atual = 0
+
+            if status_atual != 2:
+                continue
+
+            if p_id in ids_processados:
+                continue
+            ids_processados.add(p_id)
 
             produtos = venda.get('produtos', [])
             total_qtd = 0
