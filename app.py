@@ -1071,16 +1071,15 @@ def exportar_alunos_xlsx(nome_escola_url):
             nome_produto_excel = ", ".join([f"{qtd}x {nome}" for nome, qtd in contagem_produtos.items()])
 
             vendas_detalhadas_para_export.append({
-                'aluno': venda.get('nome_crianca') or venda.get('cliente_nome', 'N/A'),
-                'escola': venda.get('cliente_escola', 'N/A'),
-                'produto': nome_produto_excel,
-                'quantidade': total_qtd,
-                'valor': float(venda.get('valor', 0)),
-                'data_compra': venda.get('data_compra') 
-            })
+            'aluno': venda.get('nome_crianca') or venda.get('cliente_nome', 'N/A'),
+            'escola': venda.get('cliente_escola', 'N/A'),
+            'produto': nome_produto_excel,
+            'quantidade': total_qtd,
+            'valor': float(venda.get('valor', 0)),
+            'data_compra': venda.get('data_hora') # <--- Use o nome real do campo no Firebase
+        })
         
         if not vendas_detalhadas_para_export:
-            # Retorna um erro amigável se não houver vendas aprovadas para exportar
             return jsonify({"error": "Não há vendas aprovadas para exportar nesta escola."}), 404
 
         # --- GERAÇÃO DO ARQUIVO EXCEL ---
@@ -1088,7 +1087,8 @@ def exportar_alunos_xlsx(nome_escola_url):
         ws = wb.active 
         ws.title = f"Vendas_{nome_escola}"[:31] 
 
-        headers = ["Aluno", "Escola", "Produto", "Valor (R$)", "Data Compra"]
+        # CORREÇÃO 1: Adicionei a vírgula que faltava aqui embaixo
+        headers = ["Aluno", "Escola", "Produto", "Qtd (Unidades)", "Valor (R$)", "Data Compra"]
         ws.append(headers)
 
         header_font = Font(bold=True)
@@ -1097,17 +1097,25 @@ def exportar_alunos_xlsx(nome_escola_url):
             cell.alignment = Alignment(horizontal='center', vertical='center') 
             ws.column_dimensions[cell.column_letter].width = len(headers[col_idx-1]) + 5 
 
+        # CORREÇÃO 2: Ordem exata das colunas para o Excel não sair trocado
         for row_data in vendas_detalhadas_para_export:
+            # Limpeza da data para o Excel aceitar
+            dt = row_data['data_compra']
+            if isinstance(dt, datetime.datetime):
+                dt = dt.replace(tzinfo=None) # Tira o fuso horário (obrigatório para Excel)
+            else:
+                dt = "N/A"
+
             ws.append([
-                row_data['aluno'],
-                row_data['escola'],
-                row_data['produto'],
-                row_data['quantidade'],
-                row_data['valor'], 
-                row_data['data_compra']
+                row_data['aluno'],        # A
+                row_data['escola'],       # B
+                row_data['produto'],      # C
+                row_data['quantidade'],   # D
+                row_data['valor'],        # E
+                dt                        # F
             ])
         
-        # Formatação das células (Largura automática e formato de moeda/data)
+        # CORREÇÃO 3: Ajuste das letras de formatação
         for col in ws.columns:
             max_length = 0
             column = col[0].column_letter 
@@ -1116,18 +1124,21 @@ def exportar_alunos_xlsx(nome_escola_url):
                     if cell.value is not None:
                         cell_value_str = str(cell.value)
                         
-                        if column == 'D': # Coluna Valor 
+                        # Coluna E agora é o Valor (índice 4 do loop original)
+                        if column == 'E': 
                            cell.number_format = '"R$"#,##0.00' 
-                        elif column == 'E' and isinstance(cell.value, datetime.datetime): # Coluna Data
+                        
+                        # Coluna F agora é a Data (índice 5 do loop original)
+                        elif column == 'F' and isinstance(cell.value, datetime.datetime):
                            cell.number_format = 'DD/MM/YYYY HH:MM:SS' 
-                           cell_value_str = cell.value.strftime('%Y-%m-%d %H:%M:%S') 
+                           cell_value_str = cell.value.strftime('%d/%m/%Y %H:%M:%S') 
                         
                         if len(cell_value_str) > max_length:
                             max_length = len(cell_value_str)
                 except Exception:
                     pass
             adjusted_width = (max_length + 2) 
-            ws.column_dimensions[column].width = min(adjusted_width, 70) 
+            ws.column_dimensions[column].width = min(adjusted_width, 70)  
 
         ws.auto_filter.ref = ws.dimensions
 
