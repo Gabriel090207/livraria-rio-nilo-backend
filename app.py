@@ -115,6 +115,9 @@ def gerar_mensagem_whatsapp(venda):
     nome_comprador = venda.get("cliente_nome", "Cliente")
     numero_pedido = venda.get("merchant_order_id", "")
     nome_crianca = venda.get("nome_crianca", "Não informado")
+    cpf = venda.get("cliente_cpf", "Não informado")
+    forma_pagamento = venda.get("tipo_pagamento", "Não informado")
+    parcelas = venda.get("parcelas", 1)
     escola = venda.get("cliente_escola", "Não informada")
     produtos = venda.get("produtos", [])
     
@@ -122,8 +125,10 @@ def gerar_mensagem_whatsapp(venda):
     for item in produtos:
         nome = item.get("name", "Produto")
         qtd = int(item.get("quantity", 1))
-        try: p = float(str(item.get("price", "0")).replace("R$", "").replace(",", "."))
-        except: p = 0.0
+        try: 
+            p = float(str(item.get("price", "0")).replace("R$", "").replace(".", "").replace(",", "."))
+        except: 
+            p = 0.0
         produtos_agrupados[nome]["quantidade"] += qtd
         produtos_agrupados[nome]["preco"] = p
 
@@ -140,7 +145,9 @@ def gerar_mensagem_whatsapp(venda):
 O pagamento do seu pedido nº *{numero_pedido}* foi *aprovado*. ✅
 
 👦 *Aluno(a):* {nome_crianca}
+🪪 *CPF:* {cpf}
 🏫 *Escola:* {escola}
+💳 *Forma de Pagamento:* {forma_pagamento} em {parcelas}x
 
 📦 *Itens Adquiridos:*
 {lista_formatada}
