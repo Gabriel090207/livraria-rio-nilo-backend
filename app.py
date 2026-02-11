@@ -127,14 +127,35 @@ def gerar_mensagem_whatsapp(venda):
         produtos_agrupados[nome]["quantidade"] += qtd
         produtos_agrupados[nome]["preco"] = p
 
-    lista = ""
+    lista_formatada = ""
     total = 0
     for nome, dados in produtos_agrupados.items():
-        sub = dados["quantidade"] * dados["preco"]
-        total += sub
-        lista += f"📘 {nome} — {dados['quantidade']}x (R$ {sub:.2f})\n"
+        subtotal = dados["quantidade"] * dados["preco"]
+        total += subtotal
+        lista_formatada += f"📘 {nome} — {dados['quantidade']}x (R$ {subtotal:.2f})\n"
 
-    return f"Olá, {nome_comprador}! 👋\nPedido *{numero_pedido}* aprovado. ✅\n\n👦 *Criança:* {nome_crianca}\n🏫 *Escola:* {escola}\n\n📦 *Itens:*\n{lista}\n💵 *Total:* R$ {total:.2f}\n\n🚨 *Importante:* O produto será entregue na escola."
+    # Monta a mensagem final com o texto solicitado
+    mensagem = f"""Olá, {nome_comprador}! 👋
+
+O pagamento do seu pedido nº *{numero_pedido}* foi *aprovado*. ✅
+
+👦 *Aluno(a):* {nome_crianca}
+🏫 *Escola:* {escola}
+
+📦 *Itens Adquiridos:*
+{lista_formatada}
+💵 *Total:* R$ {total:.2f}
+
+🚨 *ATENÇÃO IMPORTANTE:*
+
+O produto será enviado para a *escola*.
+
+Para receber o kit do seu filho, *encaminhe esta mensagem para o WhatsApp da escola* ou apresente esta mensagem pessoalmente.
+
+Obrigado por sua compra! 💙📚"""
+
+    return mensagem
+
 
 @app.route('/')
 def home():
@@ -376,12 +397,6 @@ def registrar_venda():
             "recuperada": False
         }
         db.collection('vendas').document(str(order_id)).set(venda_data)
-        
-        try:
-            num = re.sub(r'\D', '', str(billing_data.get('phone', '')))
-            if num and not num.startswith("55"): num = "55" + num
-            if num: enviar_whatsapp(num, gerar_mensagem_whatsapp(venda_data))
-        except: pass
 
         return jsonify({"status": "success"}), 200
     except Exception as e:
@@ -736,8 +751,13 @@ def get_financeiro_resumo():
 @app.route('/sincronizar-pendentes', methods=['GET'])
 def sincronizar_pendentes():
     try:
-        vendas_pendentes = db.collection('vendas').where('status_cielo_codigo', 'in', [1, 12]).stream()
+        vendas_pendentes = db.collection('vendas')\
+            .where('status_cielo_codigo', 'in', [1, 12])\
+            .limit(15)\
+            .stream()
+            
         atualizadas = 0
+        analisadas = 0
         headers = {"Content-Type": "application/json", "MerchantId": MERCHANT_ID, "MerchantKey": MERCHANT_KEY}
 
         for doc in vendas_pendentes:
