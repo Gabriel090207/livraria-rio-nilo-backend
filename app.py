@@ -640,7 +640,7 @@ def get_receita_por_produto():
 
         for doc in docs:
             venda = doc.to_dict()
-            if venda.get('status_cielo_codigo') in [2, 12, 1]: 
+            if venda.get('status_cielo_codigo') == 2:
                 produtos = venda.get('produtos', [])
                 if not isinstance(produtos, list): continue
                 for p in produtos:
@@ -732,7 +732,7 @@ def get_financeiro_resumo():
             except: val = 0.0
             tipo = venda.get('tipo_pagamento', 'Outro')
 
-            if status in [2, 12, 1]:
+            if status == 2:
                 valor_ganho += val
                 metodos[tipo] += val
                 # Soma quantidade de livros
